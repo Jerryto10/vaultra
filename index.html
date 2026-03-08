@@ -610,7 +610,7 @@
   <!-- HOW IT WORKS -->
   <section class="section reveal" id="how">
     <p class="section-label">How It Works</p>
-    <h2>Five layers.<br><em>One compliance receipt.</em></h2>
+    <h2>Six layers.<br><em>One compliance receipt.</em></h2>
     <p class="lead">
       Vaultra wraps your existing AI agents with a cryptographic compliance
       framework. Three lines of code. Zero workflow changes.
@@ -642,10 +642,15 @@
         <div class="layer-title">Human Oversight</div>
         <div class="layer-desc">Enforces human review for irreversible decisions. Documents authorization chain for EU AI Act Art. 14 compliance.</div>
       </div>
+      <div class="layer-card" style="background: rgba(201,168,76,0.07); border-left: 2px solid var(--gold);">
+        <div class="layer-num">LAYER 06 — TIMESTAMPER</div>
+        <div class="layer-title">RFC 3161 Trusted Timestamp</div>
+        <div class="layer-desc">Every receipt is sealed by an independent Timestamp Authority under eIDAS Regulation (EU) No 910/2014. Not even Vaultra can alter it.</div>
+      </div>
       <div class="layer-card" style="background: rgba(201,168,76,0.04); border-left: 2px solid var(--gold);">
         <div class="layer-num">OUTPUT</div>
         <div class="layer-title">Compliance Receipt</div>
-        <div class="layer-desc">A cryptographically signed, auditor-ready PDF + verifiable JSON. One artifact. Every decision. Ready when regulators knock.</div>
+        <div class="layer-desc">A cryptographically signed, RFC 3161 timestamped, auditor-ready PDF + verifiable JSON. One artifact. Every decision. Ready when regulators knock.</div>
       </div>
     </div>
   </section>
@@ -737,10 +742,10 @@
   <footer>
     <a href="#" class="logo" style="font-family: 'DM Serif Display', serif; font-size:1.1rem;">Vault<span style="color:var(--gold)">ra</span></a>
     <span>AI Agent Compliance Layer — <a href="https://github.com/Jerryto10/vaultra" target="_blank">Open source</a> under AGPL-3.0</span>
-    <span>© 2026 Jerly Rojas · <a href="mailto:hello@vaultra.io">hello@vaultra.io</a></span>
+    <span>© 2026 Jerly Rojas · <a href="/cdn-cgi/l/email-protection#731b161f1f1c330512061f0701125d1a1c"><span class="__cf_email__" data-cfemail="ed8588818182ad9b8c9881999f8cc38482">[email&#160;protected]</span></a></span>
   </footer>
 
-  <script>
+  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
     // Nav scroll effect
     const nav = document.getElementById('nav');
     window.addEventListener('scroll', () => {
@@ -767,10 +772,4 @@
       }
 
       // Opens mailto as fallback until backend is ready
-      const subject = encodeURIComponent(`Vaultra Early Access — ${company || name}`);
-      const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\nCompany: ${company}\n\n${msg}`);
-      window.location.href = `mailto:hello@vaultra.io?subject=${subject}&body=${body}`;
-    }
-  </script>
-</body>
-</html>
+      const subject = encodeURIComponent(`Vaultra Early Access — ${company |
