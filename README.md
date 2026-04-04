@@ -29,7 +29,7 @@ Most companies can't. Vaultra solves this.
 
 ## What Vaultra Does
 
-Vaultra is a **6-layer security and compliance framework** for AI agents that generates a **Compliance Receipt** — a cryptographically signed, RFC 3161 timestamped, tamper-proof record — for every agent decision.
+Vaultra is a **7-layer security and compliance framework** for AI agents that generates a **Compliance Receipt** — a cryptographically signed, RFC 3161 timestamped, tamper-proof record — for every agent decision.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -52,7 +52,7 @@ Vaultra is a **6-layer security and compliance framework** for AI agents that ge
 
 ---
 
-## Architecture — 6 Compliance Layers
+## Architecture — 7 Compliance Layers
 
 | Layer | Module | Function |
 |-------|--------|----------|
@@ -62,6 +62,7 @@ Vaultra is a **6-layer security and compliance framework** for AI agents that ge
 | 4 — Guardian | `guardian.py` | ML-based output anomaly detection |
 | 5 — Human Gate | `human_gate.py` | Authorization control for irreversible actions |
 | 6 — Timestamper | `timestamper.py` | **RFC 3161 trusted timestamp — eIDAS legal standard** |
+| 7 — API Keys | `api_keys.py` | **Client authentication — cryptographic keys, never stored in plain text** |
 
 ### Layer 6 — RFC 3161 Trusted Timestamping
 

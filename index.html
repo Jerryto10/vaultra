@@ -610,7 +610,7 @@
   <!-- HOW IT WORKS -->
   <section class="section reveal" id="how">
     <p class="section-label">How It Works</p>
-    <h2>Six layers.<br><em>One compliance receipt.</em></h2>
+    <h2>Seven layers.<br><em>One compliance receipt.</em></h2>
     <p class="lead">
       Vaultra wraps your existing AI agents with a cryptographic compliance
       framework. Three lines of code. Zero workflow changes.
@@ -646,6 +646,11 @@
         <div class="layer-num">LAYER 06 — TIMESTAMPER</div>
         <div class="layer-title">RFC 3161 Trusted Timestamp</div>
         <div class="layer-desc">Every receipt is sealed by an independent Timestamp Authority under eIDAS Regulation (EU) No 910/2014. Not even Vaultra can alter it.</div>
+      </div>
+      <div class="layer-card">
+        <div class="layer-num">LAYER 07 — API KEYS</div>
+        <div class="layer-title">Client Authentication</div>
+        <div class="layer-desc">Every client receives a unique cryptographic API key (vaultra_sk_...). Keys are stored only as SHA-256 hashes — never in plain text. Instant revocation if compromised.</div>
       </div>
       <div class="layer-card" style="background: rgba(201,168,76,0.04); border-left: 2px solid var(--gold);">
         <div class="layer-num">OUTPUT</div>
@@ -745,11 +750,11 @@
     <span style="display:flex; gap:1.5rem; align-items:center; flex-wrap:wrap; justify-content:center;">
       <a href="https://www.iubenda.com/privacy-policy/63113432" target="_blank" rel="noopener">Privacy Policy</a>
       <a href="https://www.iubenda.com/privacy-policy/63113432/cookie-policy" target="_blank" rel="noopener">Cookie Policy</a>
-      <span>© 2026 Jerly Rojas · hello@vaultra.io</span>
+      <span>© 2026 Jerly Rojas · <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="a1c9c4cdcdcee1d7c0d4cdd5d3c08fc8ce">[email&#160;protected]</a></span>
     </span>
   </footer>
 
-  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
     // Nav scroll effect
     const nav = document.getElementById('nav');
     window.addEventListener('scroll', () => {
@@ -777,10 +782,3 @@
 
       // Opens mailto as fallback until backend is ready
       const subject = encodeURIComponent(`Vaultra Early Access - ${company || name}`);
-      const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\nCompany: ${company}\n\n${msg}`);
-      window.location.href = `mailto:hello@vaultra.io?subject=${subject}&body=${body}`;
-    }
-  </script>
-
-</body>
-</html>
