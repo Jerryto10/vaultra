@@ -782,3 +782,10 @@
 
       // Opens mailto as fallback until backend is ready
       const subject = encodeURIComponent(`Vaultra Early Access - ${company || name}`);
+      const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\nCompany: ${company}\n\n${msg}`);
+      window.location.href = `mailto:hello@vaultra.io?subject=${subject}&body=${body}`;
+    }
+  </script>
+
+</body>
+</html>
