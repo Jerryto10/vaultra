@@ -136,7 +136,7 @@ Vaultra operators manage clients and receipts at **admin.vaultra.io**:
 | GDPR | Art. 22 (Automated Decision-Making) | ✅ |
 | eIDAS | Regulation (EU) No 910/2014, Art. 41 (Trusted Timestamps) | ✅ |
 | Colorado SB 24-205 | AI lending decision disclosure | ✅ |
-| DORA | Operational resilience logging | 🔄 In progress |
+| DORA | Audit trail + incident logging | 🔄 Partial (ICT risk docs pending) |
 
 ---
 
