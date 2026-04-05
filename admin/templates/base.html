@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vaultra Admin — {% block title %}Dashboard{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    :root{--bg:#090909;--surface:#101010;--surface2:#151515;--border:#1E1E1E;--gold:#C9A84C;--gold-dim:rgba(201,168,76,0.10);--gold-glow:rgba(201,168,76,0.05);--text:#E8E8E0;--muted:#555;--green-bg:rgba(76,175,130,0.10);--red-bg:rgba(207,102,121,0.10);--blue-bg:rgba(91,143,185,0.10);--mono:'JetBrains Mono',monospace;--serif:'DM Serif Display',serif;--sans:'Instrument Sans',sans-serif;}
+    html{font-size:14px;}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;}
+    /* SIDEBAR */
+    .sidebar{width:220px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:100;}
+    .sidebar-logo{padding:24px 18px 16px;border-bottom:1px solid var(--border);}
+    .logo-mark{font-family:var(--serif);font-size:1.4rem;color:var(--text);}
+    .logo-mark span{color:var(--gold);}
+    .logo-sub{font-family:var(--mono);font-size:0.56rem;color:var(--muted);letter-spacing:0.14em;margin-top:3px;}
+    .logo-role{font-family:var(--mono);font-size:0.54rem;background:var(--gold-dim);color:var(--gold);padding:2px 8px;border-radius:3px;display:inline-block;margin-top:6px;}
+    .nav{padding:12px 0;flex:1;}
+    .nav-section{font-family:var(--mono);font-size:0.54rem;color:var(--muted);letter-spacing:0.16em;padding:12px 18px 4px;}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 18px;color:var(--muted);cursor:pointer;font-size:0.8rem;font-weight:500;transition:all 0.15s;border-left:2px solid transparent;text-decoration:none;}
+    .nav-item:hover{color:var(--text);background:var(--surface2);}
+    .nav-item.active{color:var(--gold);border-left-color:var(--gold);background:var(--gold-glow);}
+    .nav-icon{font-size:0.85rem;width:16px;text-align:center;}
+    .sidebar-footer{padding:14px 18px;border-top:1px solid var(--border);}
+    .user-info{display:flex;align-items:center;gap:10px;}
+    .user-avatar{width:30px;height:30px;background:var(--gold-dim);border:1px solid rgba(201,168,76,0.3);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:0.6rem;color:var(--gold);font-weight:700;}
+    .user-name{font-size:0.78rem;font-weight:600;}
+    .user-role{font-family:var(--mono);font-size:0.56rem;color:var(--muted);}
+    .logout-btn{margin-left:auto;font-family:var(--mono);font-size:0.56rem;color:var(--muted);text-decoration:none;padding:3px 6px;border-radius:3px;transition:all 0.15s;}
+    .logout-btn:hover{color:#CF6679;background:var(--red-bg);}
+    /* MAIN */
+    .main{margin-left:220px;flex:1;min-height:100vh;display:flex;flex-direction:column;}
+    .topbar{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;background:var(--surface);position:sticky;top:0;z-index:50;}
+    .topbar-title{font-family:var(--serif);font-size:1rem;}
+    .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+    .status-pill{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:0.6rem;color:#4CAF82;background:var(--green-bg);padding:4px 10px;border-radius:20px;border:1px solid rgba(76,175,130,0.2);}
+    .sdot{width:6px;height:6px;border-radius:50%;background:#4CAF82;animation:pulse 2s infinite;}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+    .btn{font-family:var(--mono);font-size:0.6rem;padding:6px 12px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text);letter-spacing:0.04em;transition:all 0.15s;text-decoration:none;display:inline-flex;align-items:center;gap:6px;}
+    .btn:hover{border-color:var(--gold);color:var(--gold);}
+    .btn-gold{background:var(--gold);color:#000;border-color:var(--gold);font-weight:700;}
+    .btn-gold:hover{background:#D4B560;}
+    .btn-danger{border-color:rgba(207,102,121,0.3);color:#CF6679;}
+    .btn-danger:hover{background:var(--red-bg);border-color:#CF6679;}
+    .content{padding:22px 24px;flex:1;}
+    /* PANELS */
+    .panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;}
+    .panel-header{display:flex;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);gap:10px;}
+    .panel-title{font-family:var(--mono);font-size:0.58rem;letter-spacing:0.1em;color:var(--muted);}
+    .panel-action{margin-left:auto;font-family:var(--mono);font-size:0.56rem;color:var(--gold);cursor:pointer;text-decoration:none;}
+    /* STATS */
+    .stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+    .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;position:relative;overflow:hidden;}
+    .stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--gold),transparent);opacity:0.3;}
+    .stat-card.green::after{background:linear-gradient(90deg,#4CAF82,transparent);}
+    .stat-card.blue::after{background:linear-gradient(90deg,#5B8FB9,transparent);}
+    .stat-card.red::after{background:linear-gradient(90deg,#CF6679,transparent);}
+    .stat-card.purple::after{background:linear-gradient(90deg,#9B72CF,transparent);}
+    .stat-label{font-family:var(--mono);font-size:0.54rem;color:var(--muted);letter-spacing:0.1em;margin-bottom:6px;}
+    .stat-value{font-family:var(--serif);font-size:1.7rem;color:var(--text);line-height:1;margin-bottom:4px;}
+    .stat-sub{font-family:var(--mono);font-size:0.54rem;color:var(--muted);}
+    .up{color:#4CAF82!important;}.warn{color:var(--gold)!important;}.danger{color:#CF6679!important;}
+    /* TABLE */
+    .tbl{width:100%;border-collapse:collapse;}
+    .tbl th{font-family:var(--mono);font-size:0.54rem;color:var(--muted);letter-spacing:0.1em;padding:8px 16px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);white-space:nowrap;}
+    .tbl td{padding:9px 16px;font-size:0.76rem;border-bottom:1px solid rgba(30,30,30,0.8);}
+    .tbl tr:last-child td{border-bottom:none;}
+    .tbl tr:hover td{background:var(--surface2);}
+    /* BADGES */
+    .badge{display:inline-flex;align-items:center;font-family:var(--mono);font-size:0.54rem;padding:3px 7px;border-radius:3px;font-weight:600;letter-spacing:0.03em;white-space:nowrap;}
+    .bg{background:rgba(76,175,130,0.1);color:#4CAF82;}
+    .br{background:var(--red-bg);color:#CF6679;}
+    .bo{background:var(--gold-dim);color:var(--gold);}
+    .bb{background:var(--blue-bg);color:#5B8FB9;}
+    .bm{background:rgba(85,85,85,0.12);color:var(--muted);}
+    .mono{font-family:var(--mono);font-size:0.68rem;color:var(--muted);}
+    .gold{color:var(--gold);}
+    /* MODAL */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center;}
+    .modal-overlay.open{display:flex;}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:28px;width:100%;max-width:420px;}
+    .modal-title{font-family:var(--mono);font-size:0.66rem;letter-spacing:0.1em;color:var(--muted);margin-bottom:20px;}
+    .field{margin-bottom:14px;}
+    .field label{font-family:var(--mono);font-size:0.56rem;color:var(--muted);letter-spacing:0.1em;display:block;margin-bottom:5px;}
+    .field input,.field select{width:100%;background:#151515;border:1px solid var(--border);border-radius:5px;padding:9px 12px;color:var(--text);font-family:var(--mono);font-size:0.72rem;outline:none;transition:border-color 0.15s;}
+    .field input:focus,.field select:focus{border-color:var(--gold);}
+    .modal-btns{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;}
+    /* ALERT */
+    .alert{padding:10px 14px;border-radius:5px;font-family:var(--mono);font-size:0.62rem;margin-bottom:14px;display:none;}
+    .alert.success{background:rgba(76,175,130,0.1);border:1px solid rgba(76,175,130,0.3);color:#4CAF82;}
+    .alert.error{background:var(--red-bg);border:1px solid rgba(207,102,121,0.3);color:#CF6679;}
+    .key-box{background:#151515;border:1px solid var(--gold-dim);border-radius:5px;padding:10px 14px;font-family:var(--mono);font-size:0.65rem;color:var(--gold);word-break:break-all;margin-top:10px;}
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">Vault<span>ra</span></div>
+    <div class="logo-sub">ADMIN PANEL</div>
+    <div class="logo-role">{{ role|upper }}</div>
+  </div>
+  <div class="nav">
+    <div class="nav-section">OVERVIEW</div>
+    <a href="/dashboard" class="nav-item {% if request.path == '/dashboard' %}active{% endif %}"><span class="nav-icon">◈</span> Dashboard</a>
+    <a href="/clients" class="nav-item {% if request.path == '/clients' %}active{% endif %}"><span class="nav-icon">◉</span> Clients</a>
+    <a href="/receipts" class="nav-item {% if request.path == '/receipts' %}active{% endif %}"><span class="nav-icon">◫</span> Receipts</a>
+    <div class="nav-section">SYSTEM</div>
+    <a href="/health" class="nav-item" target="_blank"><span class="nav-icon">◎</span> Health Check</a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="user-avatar">{{ username[0]|upper }}</div>
+      <div>
+        <div class="user-name">{{ username }}</div>
+        <div class="user-role">{{ role }}</div>
+      </div>
+      <a href="/logout" class="logout-btn">↩</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">{% block page_title %}Dashboard{% endblock %}</div>
+    <div class="topbar-right">
+      <div class="status-pill"><div class="sdot"></div>ADMIN — SECURE SESSION</div>
+      {% block topbar_actions %}{% endblock %}
+    </div>
+  </div>
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

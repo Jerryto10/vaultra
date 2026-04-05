@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Clients{% endblock %}
+{% block page_title %}Clients{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-gold" onclick="openModal()">+ New Client</button>
+{% endblock %}
+
+{% block content %}
+<div class="alert" id="page-alert"></div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">ALL CLIENTS — {{ clients|length }} TOTAL</div>
+  </div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>COMPANY</th><th>EMAIL</th><th>PLAN</th>
+        <th>API KEY PREFIX</th><th>RECEIPTS</th>
+        <th>STATUS</th><th>JOINED</th><th>ACTIONS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in clients %}
+      <tr id="row-{{ c.id }}">
+        <td class="gold" style="font-weight:600">{{ c.company_name }}</td>
+        <td class="mono">{{ c.email }}</td>
+        <td>
+          <span class="badge {% if c.plan == 'growth' %}bb{% elif c.plan == 'enterprise' %}bo{% else %}bm{% endif %}">
+            {{ c.plan|upper }}
+          </span>
+        </td>
+        <td class="mono">{{ c.api_key_prefix }}...</td>
+        <td class="mono">{{ c.receipt_count }} / {{ c.monthly_limit }}</td>
+        <td>
+          <span class="badge {% if c.status == 'active' %}bg{% else %}br{% endif %}">
+            {{ c.status|upper }}
+          </span>
+        </td>
+        <td class="mono" style="font-size:0.6rem;color:var(--muted)">
+          {{ c.created_at|int }}
+        </td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            {% if role == 'admin' %}
+              {% if c.status == 'active' %}
+              <button class="btn btn-danger" onclick="revokeClient('{{ c.id }}')">Revoke</button>
+              {% else %}
+              <button class="btn" onclick="activateClient('{{ c.id }}')">Activate</button>
+              {% endif %}
+              <button class="btn" onclick="rotateKey('{{ c.id }}')">Rotate Key</button>
+            {% endif %}
+            <a href="/receipts?client_id={{ c.id }}" class="btn">Receipts →</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- NEW CLIENT MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-title">CREATE NEW CLIENT</div>
+    <div class="alert" id="modal-alert"></div>
+    <div class="field"><label>COMPANY NAME</label><input type="text" id="f-company" placeholder="Fintech Corp S.A." /></div>
+    <div class="field"><label>EMAIL</label><input type="email" id="f-email" placeholder="cto@company.com" /></div>
+    <div class="field">
+      <label>PLAN</label>
+      <select id="f-plan">
+        <option value="starter">Starter — $299/mo</option>
+        <option value="growth">Growth — $799/mo</option>
+        <option value="enterprise">Enterprise — Custom</option>
+      </select>
+    </div>
+    <div id="key-result" style="display:none">
+      <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-bottom:6px;">⚠ API KEY — COPY NOW:</div>
+      <div class="key-box" id="key-val"></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-gold" onclick="createClient()">Create →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ROTATE KEY MODAL -->
+<div class="modal-overlay" id="rotate-modal">
+  <div class="modal">
+    <div class="modal-title">NEW API KEY — COPY NOW</div>
+    <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-bottom:10px;">The old key is now invalid. Share this new key with the client securely.</div>
+    <div class="key-box" id="rotate-key-val"></div>
+    <div class="modal-btns">
+      <button class="btn btn-gold" onclick="closeRotateModal()">Done</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openModal(){ document.getElementById('modal').classList.add('open'); }
+  function closeModal(){ document.getElementById('modal').classList.remove('open'); }
+  function closeRotateModal(){ document.getElementById('rotate-modal').classList.remove('open'); location.reload(); }
+
+  function showPageAlert(type, msg){
+    const el = document.getElementById('page-alert');
+    el.className = 'alert ' + type;
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(()=>el.style.display='none', 4000);
+  }
+
+  function showModalAlert(type, msg){
+    const el = document.getElementById('modal-alert');
+    el.className = 'alert ' + type;
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  async function createClient(){
+    const company = document.getElementById('f-company').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+    const plan = document.getElementById('f-plan').value;
+    if(!company || !email){ showModalAlert('error','All fields required.'); return; }
+    const res = await fetch('/clients/new',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company_name:company,email,plan})});
+    const data = await res.json();
+    if(data.success){
+      document.getElementById('key-val').textContent = data.api_key;
+      document.getElementById('key-result').style.display = 'block';
+      showModalAlert('success','Client created! Copy the API key now.');
+      setTimeout(()=>{ closeModal(); location.reload(); }, 6000);
+    } else {
+      showModalAlert('error', data.error || 'Error creating client.');
+    }
+  }
+
+  async function revokeClient(id){
+    if(!confirm('Revoke this client API key? They will lose access immediately.')) return;
+    const res = await fetch(`/clients/${id}/revoke`,{method:'POST'});
+    const data = await res.json();
+    if(data.success) showPageAlert('success','Client revoked.');
+    setTimeout(()=>location.reload(), 1500);
+  }
+
+  async function activateClient(id){
+    const res = await fetch(`/clients/${id}/activate`,{method:'POST'});
+    const data = await res.json();
+    if(data.success) showPageAlert('success','Client activated.');
+    setTimeout(()=>location.reload(), 1500);
+  }
+
+  async function rotateKey(id){
+    if(!confirm('Generate new API key? The current key will stop working immediately.')) return;
+    const res = await fetch(`/clients/${id}/rotate-key`,{method:'POST'});
+    const data = await res.json();
+    if(data.success){
+      document.getElementById('rotate-key-val').textContent = data.api_key;
+      document.getElementById('rotate-modal').classList.add('open');
+    }
+  }
+
+  document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+</script>
+{% endblock %}

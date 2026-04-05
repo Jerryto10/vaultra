@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Overview{% endblock %}
+
+{% block topbar_actions %}
+<a href="/clients/new" class="btn btn-gold" onclick="openModal();return false;">+ New Client</a>
+{% endblock %}
+
+{% block content %}
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">TOTAL CLIENTS</div>
+    <div class="stat-value">{{ total_clients }}</div>
+    <div class="stat-sub">{{ active_clients }} active</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-label">TOTAL RECEIPTS</div>
+    <div class="stat-value">{{ total_receipts }}</div>
+    <div class="stat-sub up">RFC 3161 stamped</div>
+  </div>
+  <div class="stat-card blue">
+    <div class="stat-label">MRR (USD)</div>
+    <div class="stat-value" id="mrr-val">—</div>
+    <div class="stat-sub">from active plans</div>
+  </div>
+  <div class="stat-card red">
+    <div class="stat-label">FLAGGED</div>
+    <div class="stat-value">{{ flagged }}</div>
+    <div class="stat-sub {% if flagged > 0 %}danger{% endif %}">{% if flagged > 0 %}⚠ Needs review{% else %}All clear{% endif %}</div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-label">SYSTEM STATUS</div>
+    <div class="stat-value" style="font-size:1.2rem;color:#4CAF82;">7/7</div>
+    <div class="stat-sub up">All layers active</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:16px;">
+  <div>
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">RECENT RECEIPTS</div>
+        <a href="/receipts" class="panel-action">View all →</a>
+      </div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>CLIENT</th><th>AGENT</th><th>DECISION</th>
+            <th>REGULATION</th><th>STATUS</th><th>DATE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in recent_receipts %}
+          <tr>
+            <td class="gold">{{ r.company_name }}</td>
+            <td class="mono">{{ r.agent_id }}</td>
+            <td>
+              {% if 'APPROVED' in r.decision or 'CLEARED' in r.decision %}
+                <span class="badge bg">{{ r.decision_type }}</span>
+              {% elif 'REJECT' in r.decision %}
+                <span class="badge br">{{ r.decision_type }}</span>
+              {% elif 'FLAG' in r.decision %}
+                <span class="badge bo">{{ r.decision_type }}</span>
+              {% else %}
+                <span class="badge bm">{{ r.decision_type }}</span>
+              {% endif %}
+            </td>
+            <td><span class="badge bm">{{ r.regulation }}</span></td>
+            <td>
+              {% if r.status == 'valid' %}
+                <span class="badge bg">✓ VALID</span>
+              {% elif r.status == 'review' %}
+                <span class="badge bo">⚠ REVIEW</span>
+              {% else %}
+                <span class="badge br">{{ r.status|upper }}</span>
+              {% endif %}
+            </td>
+            <td class="mono">{{ (r.created_at)|int }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">ACTIVE CLIENTS</div>
+        <a href="/clients" class="panel-action">View all →</a>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>COMPANY</th><th>PLAN</th><th>STATUS</th></tr></thead>
+        <tbody>
+          {% for c in clients %}
+          <tr>
+            <td class="gold">{{ c.company_name }}</td>
+            <td><span class="badge {% if c.plan == 'growth' %}bb{% elif c.plan == 'enterprise' %}bo{% else %}bm{% endif %}">{{ c.plan|upper }}</span></td>
+            <td><span class="badge {% if c.status == 'active' %}bg{% else %}br{% endif %}">{{ c.status|upper }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">COMPLIANCE LAYERS</div><span class="badge bg">7/7 OK</span></div>
+      {% for layer in [('01','Identity','Ed25519 signing'),('02','Sanitizer','Injection detection'),('03','Ledger','Audit chain'),('04','Guardian','Anomaly detection'),('05','Human Gate','Action control'),('06','Timestamper','RFC 3161 / eIDAS'),('07','API Keys','Client auth')] %}
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid rgba(30,30,30,0.8);">
+        <span class="mono" style="color:var(--gold);width:22px">{{ layer[0] }}</span>
+        <span style="flex:1;font-size:0.78rem;font-weight:500;">{{ layer[1] }}</span>
+        <span class="mono" style="font-size:0.54rem">{{ layer[2] }}</span>
+        <span style="width:7px;height:7px;border-radius:50%;background:#4CAF82;box-shadow:0 0 5px rgba(76,175,130,0.4);flex-shrink:0;"></span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- NEW CLIENT MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-title">CREATE NEW CLIENT</div>
+    <div class="alert" id="modal-alert"></div>
+    <div class="field"><label>COMPANY NAME</label><input type="text" id="f-company" placeholder="Fintech Corp S.A." /></div>
+    <div class="field"><label>EMAIL</label><input type="email" id="f-email" placeholder="cto@company.com" /></div>
+    <div class="field">
+      <label>PLAN</label>
+      <select id="f-plan">
+        <option value="starter">Starter — $299/mo — 10,000 decisions</option>
+        <option value="growth">Growth — $799/mo — 50,000 decisions</option>
+        <option value="enterprise">Enterprise — Custom</option>
+      </select>
+    </div>
+    <div id="key-result" style="display:none">
+      <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-bottom:6px;">API KEY — COPY NOW, SHOWN ONCE:</div>
+      <div class="key-box" id="key-val"></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-gold" onclick="createClient()">Create Client →</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Load MRR
+  fetch('/api/metrics').then(r=>r.json()).then(d=>{
+    document.getElementById('mrr-val').textContent = '$' + d.mrr_usd.toLocaleString();
+  });
+
+  function openModal(){ document.getElementById('modal').classList.add('open'); }
+  function closeModal(){ document.getElementById('modal').classList.remove('open'); document.getElementById('key-result').style.display='none'; }
+
+  async function createClient(){
+    const company = document.getElementById('f-company').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+    const plan = document.getElementById('f-plan').value;
+    if(!company || !email){ showAlert('error','Company name and email are required.'); return; }
+    const res = await fetch('/clients/new', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({company_name:company, email, plan})
+    });
+    const data = await res.json();
+    if(data.success){
+      document.getElementById('key-val').textContent = data.api_key;
+      document.getElementById('key-result').style.display='block';
+      showAlert('success','Client created! Copy the API key now — it will not be shown again.');
+      setTimeout(()=>location.reload(), 5000);
+    } else {
+      showAlert('error', data.error || 'Error creating client.');
+    }
+  }
+
+  function showAlert(type, msg){
+    const el = document.getElementById('modal-alert');
+    el.className = 'alert ' + type;
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  // Close modal on overlay click
+  document.getElementById('modal').addEventListener('click', function(e){
+    if(e.target === this) closeModal();
+  });
+</script>
+{% endblock %}

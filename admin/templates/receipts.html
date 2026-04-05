@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Receipts{% endblock %}
+{% block page_title %}Compliance Receipts{% endblock %}
+
+{% block content %}
+<div class="panel" style="margin-bottom:14px;">
+  <div class="panel-header"><div class="panel-title">FILTERS</div></div>
+  <div style="padding:14px 18px;display:flex;gap:12px;align-items:center;">
+    <select id="f-client" class="field" style="margin:0;width:auto;" onchange="applyFilter()">
+      <option value="">All Clients</option>
+      {% for c in clients %}
+      <option value="{{ c.id }}" {% if request.args.get('client_id') == c.id %}selected{% endif %}>{{ c.company_name }}</option>
+      {% endfor %}
+    </select>
+    <select id="f-status" style="background:#151515;border:1px solid var(--border);border-radius:5px;padding:8px 12px;color:var(--text);font-family:var(--mono);font-size:0.68rem;outline:none;" onchange="applyFilter()">
+      <option value="">All Status</option>
+      <option value="valid" {% if request.args.get('status') == 'valid' %}selected{% endif %}>Valid</option>
+      <option value="review" {% if request.args.get('status') == 'review' %}selected{% endif %}>Review</option>
+    </select>
+    <span class="mono" style="color:var(--muted)">{{ receipts|length }} receipts</span>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">COMPLIANCE RECEIPTS</div>
+    <span class="badge bg">RFC 3161 VERIFIED</span>
+  </div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>RECEIPT ID</th><th>CLIENT</th><th>AGENT</th>
+        <th>DECISION</th><th>REGULATION</th>
+        <th>BLOCK</th><th>RFC 3161</th><th>STATUS</th><th>DATE</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in receipts %}
+      <tr>
+        <td><span class="mono" style="color:var(--gold)">{{ r.id[:8] }}</span></td>
+        <td class="gold">{{ r.company_name }}</td>
+        <td class="mono">{{ r.agent_id }}</td>
+        <td>
+          {% if 'APPROVED' in r.decision_type or 'CLEARED' in r.decision_type %}
+            <span class="badge bg">{{ r.decision_type }}</span>
+          {% elif 'REJECT' in r.decision_type %}
+            <span class="badge br">{{ r.decision_type }}</span>
+          {% elif 'FLAG' in r.decision_type %}
+            <span class="badge bo">{{ r.decision_type }}</span>
+          {% else %}
+            <span class="badge bm">{{ r.decision_type }}</span>
+          {% endif %}
+        </td>
+        <td><span class="badge bm">{{ r.regulation }}</span></td>
+        <td class="mono">#{{ r.block_number }}</td>
+        <td>
+          {% if r.rfc3161_ts %}
+            <span class="badge bg">✓ STAMPED</span>
+          {% else %}
+            <span class="badge bo">PENDING</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.status == 'valid' %}
+            <span class="badge bg">✓ VALID</span>
+          {% elif r.status == 'review' %}
+            <span class="badge bo">⚠ REVIEW</span>
+          {% else %}
+            <span class="badge br">{{ r.status|upper }}</span>
+          {% endif %}
+        </td>
+        <td class="mono" style="font-size:0.58rem;color:var(--muted)">{{ r.created_at|int }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function applyFilter(){
+    const client = document.getElementById('f-client').value;
+    const status = document.getElementById('f-status').value;
+    let url = '/receipts?';
+    if(client) url += 'client_id=' + client + '&';
+    if(status) url += 'status=' + status;
+    window.location.href = url;
+  }
+</script>
+{% endblock %}
