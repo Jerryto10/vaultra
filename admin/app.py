@@ -522,3 +522,109 @@ if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
+# ── Gap 1: API Key Validation Endpoint ────────────────────
+@app.route("/api/validate-key", methods=["POST"])
+def validate_key_endpoint():
+    """
+    Called by the Vaultra SDK to validate a client API key.
+    Returns client info if valid, error if not.
+    
+    Request: {"api_key": "vaultra_sk_v1_..."}
+    Response: {"valid": true, "client_id": "...", "plan": "starter", "monthly_limit": 10000}
+    """
+    data = request.json
+    if not data or "api_key" not in data:
+        return jsonify({"valid": False, "error": "Missing api_key"}), 400
+
+    raw_key = data["api_key"]
+    if not raw_key.startswith("vaultra_sk_"):
+        return jsonify({"valid": False, "error": "Invalid key format"}), 400
+
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    db = get_db()
+    client = db.execute("""
+        SELECT id, company_name, plan, status, monthly_limit, receipt_count
+        FROM clients
+        WHERE api_key_hash=? AND archived=0
+    """, (key_hash,)).fetchone()
+
+    if not client:
+        return jsonify({"valid": False, "error": "Invalid API key"}), 401
+
+    if client["status"] != "active":
+        return jsonify({"valid": False, "error": f"Account {client['status']}"}), 403
+
+    # Update last_seen
+    db.execute("UPDATE clients SET last_seen=? WHERE id=?", (time.time(), client["id"]))
+    db.commit()
+
+    return jsonify({
+        "valid": True,
+        "client_id": client["id"],
+        "company_name": client["company_name"],
+        "plan": client["plan"],
+        "monthly_limit": client["monthly_limit"],
+        "receipt_count": client["receipt_count"],
+    })
+
+@app.route("/api/receipt", methods=["POST"])
+def receive_receipt():
+    """
+    Called by the Vaultra SDK to register a Compliance Receipt.
+    Validates API key then stores receipt metadata.
+    
+    Request: {
+        "api_key": "vaultra_sk_v1_...",
+        "agent_id": "credit-bot-v1",
+        "decision": "APPROVE loan #123",
+        "decision_type": "LOAN_APPROVED",
+        "input_hash": "sha256...",
+        "block_number": 1234,
+        "rfc3161_ts": "2026-04-05T...",
+        "regulation": "EU AI Act"
+    }
+    """
+    data = request.json
+    if not data or "api_key" not in data:
+        return jsonify({"success": False, "error": "Missing api_key"}), 400
+
+    key_hash = hashlib.sha256(data["api_key"].encode()).hexdigest()
+    db = get_db()
+    client = db.execute(
+        "SELECT id, status, monthly_limit, receipt_count FROM clients WHERE api_key_hash=? AND archived=0",
+        (key_hash,)
+    ).fetchone()
+
+    if not client or client["status"] != "active":
+        return jsonify({"success": False, "error": "Invalid or inactive API key"}), 401
+
+    # Check monthly limit
+    if client["receipt_count"] >= client["monthly_limit"]:
+        return jsonify({"success": False, "error": "Monthly receipt limit reached"}), 429
+
+    # Store receipt
+    rid = str(uuid.uuid4())
+    db.execute("""
+        INSERT INTO receipts
+        (id, client_id, agent_id, decision, decision_type, input_hash,
+         block_number, rfc3161_ts, regulation, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?)
+    """, (
+        rid, client["id"],
+        data.get("agent_id", "unknown"),
+        data.get("decision", ""),
+        data.get("decision_type", "UNKNOWN"),
+        data.get("input_hash", ""),
+        data.get("block_number", 0),
+        data.get("rfc3161_ts", ""),
+        data.get("regulation", "EU AI Act"),
+        time.time()
+    ))
+    db.execute(
+        "UPDATE clients SET receipt_count=receipt_count+1, last_seen=? WHERE id=?",
+        (time.time(), client["id"])
+    )
+    db.commit()
+
+    return jsonify({"success": True, "receipt_id": rid})
