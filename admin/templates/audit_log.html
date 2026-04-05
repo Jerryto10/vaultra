@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">ADMIN ACTIVITY LOG — LAST 200 ENTRIES</div>
+    <span class="badge bm">Read-only — Immutable record</span>
+  </div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>DATE / TIME UTC</th>
+        <th>ADMIN</th>
+        <th>ROLE</th>
+        <th>ACTION</th>
+        <th>TARGET</th>
+        <th>DETAILS</th>
+        <th>IP ADDRESS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td class="mono">{{ fmt_date(log.created_at) }}</td>
+        <td style="font-weight:600;color:var(--gold)">{{ log.username }}</td>
+        <td><span class="badge bm">{{ log.admin_id[:6] }}...</span></td>
+        <td>
+          {% if log.action in ['LOGIN','LOGOUT'] %}
+            <span class="badge bb">{{ log.action }}</span>
+          {% elif log.action in ['CREATE_CLIENT'] %}
+            <span class="badge bg">{{ log.action }}</span>
+          {% elif log.action in ['REVOKE_CLIENT','ARCHIVE_CLIENT'] %}
+            <span class="badge br">{{ log.action }}</span>
+          {% elif log.action in ['ROTATE_KEY'] %}
+            <span class="badge bo">{{ log.action }}</span>
+          {% else %}
+            <span class="badge bm">{{ log.action }}</span>
+          {% endif %}
+        </td>
+        <td class="mono" style="font-size:0.62rem;color:var(--muted)">{{ log.target or '—' }}</td>
+        <td style="font-size:0.74rem;color:var(--muted)">{{ log.details or '—' }}</td>
+        <td class="mono" style="font-size:0.6rem;color:var(--muted)">{{ log.ip_address or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

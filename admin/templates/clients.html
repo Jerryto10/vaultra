@@ -1,56 +1,75 @@
 {% extends "base.html" %}
 {% block title %}Clients{% endblock %}
-{% block page_title %}Clients{% endblock %}
+{% block page_title %}{% if show_archived %}Archived Clients{% else %}Active Clients{% endif %}{% endblock %}
 
 {% block topbar_actions %}
+{% if not show_archived %}
 <button class="btn btn-gold" onclick="openModal()">+ New Client</button>
+{% endif %}
 {% endblock %}
 
 {% block content %}
 <div class="alert" id="page-alert"></div>
 
+<!-- Filters -->
+<div class="panel" style="margin-bottom:14px;">
+  <div class="panel-header"><div class="panel-title">FILTERS</div></div>
+  <div style="padding:12px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <a href="/clients" class="btn {% if not show_archived %}btn-gold{% endif %}">Active</a>
+    <a href="/clients?archived=1" class="btn {% if show_archived %}btn-gold{% endif %}">Archived</a>
+    <select onchange="applyFilter('industry',this.value)" style="background:#151515;border:1px solid var(--border);border-radius:5px;padding:7px 12px;color:var(--text);font-family:var(--mono);font-size:0.68rem;outline:none;">
+      <option value="">All Industries</option>
+      {% for i in industries %}<option value="{{ i.industry }}" {% if request.args.get('industry') == i.industry %}selected{% endif %}>{{ i.industry|title }}</option>{% endfor %}
+    </select>
+    <select onchange="applyFilter('country',this.value)" style="background:#151515;border:1px solid var(--border);border-radius:5px;padding:7px 12px;color:var(--text);font-family:var(--mono);font-size:0.68rem;outline:none;">
+      <option value="">All Countries</option>
+      {% for c in countries %}<option value="{{ c.country }}" {% if request.args.get('country') == c.country %}selected{% endif %}>{{ c.country }}</option>{% endfor %}
+    </select>
+    <span class="mono">{{ clients|length }} clients</span>
+  </div>
+</div>
+
 <div class="panel">
   <div class="panel-header">
-    <div class="panel-title">ALL CLIENTS — {{ clients|length }} TOTAL</div>
+    <div class="panel-title">{% if show_archived %}ARCHIVED CLIENTS — PRESERVED FOR AUDIT TRAIL{% else %}ACTIVE CLIENTS{% endif %}</div>
   </div>
   <table class="tbl">
     <thead>
       <tr>
-        <th>COMPANY</th><th>EMAIL</th><th>PLAN</th>
-        <th>API KEY PREFIX</th><th>RECEIPTS</th>
-        <th>STATUS</th><th>JOINED</th><th>ACTIONS</th>
+        <th>COMPANY</th><th>EMAIL</th><th>PLAN</th><th>INDUSTRY</th>
+        <th>COUNTRY</th><th>API KEY</th><th>RECEIPTS</th>
+        <th>STATUS</th><th>JOINED</th><th>LAST SEEN</th><th>ACTIONS</th>
       </tr>
     </thead>
     <tbody>
       {% for c in clients %}
       <tr id="row-{{ c.id }}">
-        <td class="gold" style="font-weight:600">{{ c.company_name }}</td>
-        <td class="mono">{{ c.email }}</td>
-        <td>
-          <span class="badge {% if c.plan == 'growth' %}bb{% elif c.plan == 'enterprise' %}bo{% else %}bm{% endif %}">
-            {{ c.plan|upper }}
-          </span>
-        </td>
-        <td class="mono">{{ c.api_key_prefix }}...</td>
+        <td style="font-weight:600;color:var(--gold)">{{ c.company_name }}</td>
+        <td class="mono" style="font-size:0.66rem">{{ c.email }}</td>
+        <td><span class="badge {% if c.plan == 'growth' %}bb{% elif c.plan == 'enterprise' %}bo{% else %}bm{% endif %}">{{ c.plan|upper }}</span></td>
+        <td class="mono" style="font-size:0.66rem">{{ c.industry or '—' }}</td>
+        <td class="mono" style="font-size:0.66rem">{{ c.country or '—' }}</td>
+        <td class="mono" style="font-size:0.62rem;color:var(--muted)">{{ c.api_key_prefix }}...</td>
         <td class="mono">{{ c.receipt_count }} / {{ c.monthly_limit }}</td>
+        <td><span class="badge {% if c.status == 'active' %}bg{% elif c.status == 'archived' %}bm{% else %}br{% endif %}">{{ c.status|upper }}</span></td>
+        <td class="mono" style="font-size:0.6rem;color:var(--muted)">{{ fmt_date(c.created_at) }}</td>
+        <td class="mono" style="font-size:0.6rem;color:var(--muted)">{{ fmt_date(c.last_seen) }}</td>
         <td>
-          <span class="badge {% if c.status == 'active' %}bg{% else %}br{% endif %}">
-            {{ c.status|upper }}
-          </span>
-        </td>
-        <td class="mono" style="font-size:0.6rem;color:var(--muted)">
-          {{ c.created_at|int }}
-        </td>
-        <td>
-          <div style="display:flex;gap:6px;">
+          <div style="display:flex;gap:5px;flex-wrap:wrap;">
             {% if role == 'admin' %}
-              {% if c.status == 'active' %}
-              <button class="btn btn-danger" onclick="revokeClient('{{ c.id }}')">Revoke</button>
+              {% if show_archived %}
+                <button class="btn" onclick="restoreClient('{{ c.id }}')">Restore</button>
               {% else %}
-              <button class="btn" onclick="activateClient('{{ c.id }}')">Activate</button>
+                {% if c.status == 'active' %}
+                  <button class="btn btn-danger" onclick="revokeClient('{{ c.id }}')">Revoke</button>
+                {% else %}
+                  <button class="btn" onclick="activateClient('{{ c.id }}')">Activate</button>
+                {% endif %}
+                <button class="btn" onclick="rotateKey('{{ c.id }}')">Rotate Key</button>
+                <button class="btn btn-danger" onclick="archiveClient('{{ c.id }}')">Archive</button>
               {% endif %}
-              <button class="btn" onclick="rotateKey('{{ c.id }}')">Rotate Key</button>
             {% endif %}
+            <button class="btn" onclick="openNotes('{{ c.id }}','{{ c.notes|default('')|replace("'","\\'")|replace('\n',' ') }}')">Notes</button>
             <a href="/receipts?client_id={{ c.id }}" class="btn">Receipts →</a>
           </div>
         </td>
@@ -65,23 +84,34 @@
   <div class="modal">
     <div class="modal-title">CREATE NEW CLIENT</div>
     <div class="alert" id="modal-alert"></div>
-    <div class="field"><label>COMPANY NAME</label><input type="text" id="f-company" placeholder="Fintech Corp S.A." /></div>
-    <div class="field"><label>EMAIL</label><input type="email" id="f-email" placeholder="cto@company.com" /></div>
-    <div class="field">
-      <label>PLAN</label>
-      <select id="f-plan">
-        <option value="starter">Starter — $299/mo</option>
-        <option value="growth">Growth — $799/mo</option>
-        <option value="enterprise">Enterprise — Custom</option>
-      </select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="field"><label>COMPANY NAME</label><input type="text" id="f-company" placeholder="Fintech Corp S.A." /></div>
+      <div class="field"><label>EMAIL</label><input type="email" id="f-email" placeholder="cto@company.com" /></div>
+      <div class="field"><label>PLAN</label>
+        <select id="f-plan">
+          <option value="starter">Starter — $299/mo</option>
+          <option value="growth">Growth — $799/mo</option>
+          <option value="enterprise">Enterprise — Custom</option>
+        </select>
+      </div>
+      <div class="field"><label>INDUSTRY</label>
+        <select id="f-industry">
+          <option value="fintech">Fintech</option>
+          <option value="banking">Banking</option>
+          <option value="payments">Payments</option>
+          <option value="insurance">Insurance</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field"><label>COUNTRY (ISO)</label><input type="text" id="f-country" placeholder="DE" maxlength="2" style="text-transform:uppercase" /></div>
     </div>
     <div id="key-result" style="display:none">
-      <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-bottom:6px;">⚠ API KEY — COPY NOW:</div>
+      <div style="font-family:var(--mono);font-size:0.58rem;color:#CF6679;margin-bottom:6px;">⚠ COPY NOW — SHOWN ONCE ONLY:</div>
       <div class="key-box" id="key-val"></div>
     </div>
     <div class="modal-btns">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-gold" onclick="createClient()">Create →</button>
+      <button class="btn btn-gold" onclick="createClient()">Create Client →</button>
     </div>
   </div>
 </div>
@@ -90,10 +120,23 @@
 <div class="modal-overlay" id="rotate-modal">
   <div class="modal">
     <div class="modal-title">NEW API KEY — COPY NOW</div>
-    <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-bottom:10px;">The old key is now invalid. Share this new key with the client securely.</div>
+    <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-bottom:10px;">The old key is now invalid. Share securely with client.</div>
     <div class="key-box" id="rotate-key-val"></div>
+    <div class="modal-btns"><button class="btn btn-gold" onclick="closeRotateModal()">Done — I copied it</button></div>
+  </div>
+</div>
+
+<!-- NOTES MODAL -->
+<div class="modal-overlay" id="notes-modal">
+  <div class="modal">
+    <div class="modal-title">INTERNAL NOTES</div>
+    <input type="hidden" id="notes-client-id" />
+    <div class="field"><label>NOTES (INTERNAL — NOT VISIBLE TO CLIENT)</label>
+      <textarea id="notes-text" rows="5" placeholder="e.g. In negotiation, follow up April 15. Contact: Maria Santos (CTO)"></textarea>
+    </div>
     <div class="modal-btns">
-      <button class="btn btn-gold" onclick="closeRotateModal()">Done</button>
+      <button class="btn" onclick="closeNotesModal()">Cancel</button>
+      <button class="btn btn-gold" onclick="saveNotes()">Save Notes →</button>
     </div>
   </div>
 </div>
@@ -101,67 +144,69 @@
 
 {% block scripts %}
 <script>
+  function applyFilter(key, val){
+    const url = new URL(window.location);
+    if(val) url.searchParams.set(key,val); else url.searchParams.delete(key);
+    window.location.href = url.toString();
+  }
   function openModal(){ document.getElementById('modal').classList.add('open'); }
   function closeModal(){ document.getElementById('modal').classList.remove('open'); }
   function closeRotateModal(){ document.getElementById('rotate-modal').classList.remove('open'); location.reload(); }
-
-  function showPageAlert(type, msg){
-    const el = document.getElementById('page-alert');
-    el.className = 'alert ' + type;
-    el.textContent = msg;
-    el.style.display = 'block';
-    setTimeout(()=>el.style.display='none', 4000);
-  }
-
-  function showModalAlert(type, msg){
-    const el = document.getElementById('modal-alert');
-    el.className = 'alert ' + type;
-    el.textContent = msg;
-    el.style.display = 'block';
-  }
+  function openNotes(id, notes){ document.getElementById('notes-client-id').value=id; document.getElementById('notes-text').value=notes; document.getElementById('notes-modal').classList.add('open'); }
+  function closeNotesModal(){ document.getElementById('notes-modal').classList.remove('open'); }
+  function showPageAlert(type,msg){ const el=document.getElementById('page-alert'); el.className='alert '+type; el.textContent=msg; el.style.display='block'; setTimeout(()=>el.style.display='none',4000); }
+  function showModalAlert(type,msg){ const el=document.getElementById('modal-alert'); el.className='alert '+type; el.textContent=msg; el.style.display='block'; }
 
   async function createClient(){
-    const company = document.getElementById('f-company').value.trim();
-    const email = document.getElementById('f-email').value.trim();
-    const plan = document.getElementById('f-plan').value;
-    if(!company || !email){ showModalAlert('error','All fields required.'); return; }
-    const res = await fetch('/clients/new',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company_name:company,email,plan})});
-    const data = await res.json();
-    if(data.success){
-      document.getElementById('key-val').textContent = data.api_key;
-      document.getElementById('key-result').style.display = 'block';
-      showModalAlert('success','Client created! Copy the API key now.');
-      setTimeout(()=>{ closeModal(); location.reload(); }, 6000);
-    } else {
-      showModalAlert('error', data.error || 'Error creating client.');
-    }
+    const company=document.getElementById('f-company').value.trim();
+    const email=document.getElementById('f-email').value.trim();
+    const plan=document.getElementById('f-plan').value;
+    const industry=document.getElementById('f-industry').value;
+    const country=document.getElementById('f-country').value.trim().toUpperCase();
+    if(!company||!email){ showModalAlert('error','Company name and email required.'); return; }
+    const res=await fetch('/clients/new',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company_name:company,email,plan,industry,country})});
+    const data=await res.json();
+    if(data.success){ document.getElementById('key-val').textContent=data.api_key; document.getElementById('key-result').style.display='block'; showModalAlert('success','Client created! Copy the API key now — it will NOT be shown again.'); setTimeout(()=>{closeModal();location.reload();},7000); }
+    else showModalAlert('error',data.error||'Error.');
+  }
+
+  async function archiveClient(id){
+    if(!confirm('Archive this client? Their data will be preserved for audit trail but they will lose access.')) return;
+    const res=await fetch(`/clients/${id}/archive`,{method:'POST'});
+    if((await res.json()).success){ showPageAlert('success','Client archived — data preserved.'); setTimeout(()=>location.reload(),1500); }
+  }
+
+  async function restoreClient(id){
+    if(!confirm('Restore this client? They will regain active status.')) return;
+    const res=await fetch(`/clients/${id}/restore`,{method:'POST'});
+    if((await res.json()).success){ showPageAlert('success','Client restored.'); setTimeout(()=>location.reload(),1500); }
   }
 
   async function revokeClient(id){
-    if(!confirm('Revoke this client API key? They will lose access immediately.')) return;
-    const res = await fetch(`/clients/${id}/revoke`,{method:'POST'});
-    const data = await res.json();
-    if(data.success) showPageAlert('success','Client revoked.');
-    setTimeout(()=>location.reload(), 1500);
+    if(!confirm('Revoke API key? Client loses access immediately.')) return;
+    const res=await fetch(`/clients/${id}/revoke`,{method:'POST'});
+    if((await res.json()).success){ showPageAlert('success','Client revoked.'); setTimeout(()=>location.reload(),1500); }
   }
 
   async function activateClient(id){
-    const res = await fetch(`/clients/${id}/activate`,{method:'POST'});
-    const data = await res.json();
-    if(data.success) showPageAlert('success','Client activated.');
-    setTimeout(()=>location.reload(), 1500);
+    const res=await fetch(`/clients/${id}/activate`,{method:'POST'});
+    if((await res.json()).success){ showPageAlert('success','Client activated.'); setTimeout(()=>location.reload(),1500); }
   }
 
   async function rotateKey(id){
-    if(!confirm('Generate new API key? The current key will stop working immediately.')) return;
-    const res = await fetch(`/clients/${id}/rotate-key`,{method:'POST'});
-    const data = await res.json();
-    if(data.success){
-      document.getElementById('rotate-key-val').textContent = data.api_key;
-      document.getElementById('rotate-modal').classList.add('open');
-    }
+    if(!confirm('Generate a new API key? Current key stops working immediately.')) return;
+    const res=await fetch(`/clients/${id}/rotate-key`,{method:'POST'});
+    const data=await res.json();
+    if(data.success){ document.getElementById('rotate-key-val').textContent=data.api_key; document.getElementById('rotate-modal').classList.add('open'); }
   }
 
-  document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+  async function saveNotes(){
+    const id=document.getElementById('notes-client-id').value;
+    const notes=document.getElementById('notes-text').value;
+    const res=await fetch(`/clients/${id}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes})});
+    if((await res.json()).success){ closeNotesModal(); showPageAlert('success','Notes saved.'); }
+  }
+
+  document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');}));
 </script>
 {% endblock %}
