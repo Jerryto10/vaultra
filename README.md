@@ -98,10 +98,33 @@ pip install vaultra
 from vaultra import VaultraPipeline
 
 # 3-line integration
-pipeline = VaultraPipeline(agent_id="credit-bot-v2", scope="credit_decisions")
+pipeline = VaultraPipeline(
+    agent_id="credit-bot-v2",
+    api_key="vaultra_sk_v1_...",   # Get your key at vaultra.io
+    scope="credit_decisions"
+)
 result = pipeline.process(input_data, agent_response)
-receipt = result.compliance_receipt  # Signed, timestamped, auditor-ready
+print(result.summary())  # Signed, RFC 3161 timestamped, auditor-ready
 ```
+
+## API Endpoints
+
+Vaultra exposes a REST API for SDK integration:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/validate-key` | POST | Validate client API key |
+| `/api/receipt` | POST | Register a Compliance Receipt |
+| `/health` | GET | Service health check |
+
+## Admin Panel
+
+Vaultra operators manage clients and receipts at **admin.vaultra.io**:
+- Create and manage client API keys
+- View all Compliance Receipts across clients
+- Archive clients (data preserved for audit trail)
+- Full audit log of all admin actions
+- Session timeout and secure logout
 
 ---
 
