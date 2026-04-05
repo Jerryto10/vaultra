@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vaultra — Compliance Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    :root{
+      --bg:#090909;--surface:#101010;--surface2:#151515;--border:#1E1E1E;
+      --gold:#C9A84C;--gold-dim:rgba(201,168,76,0.10);--gold-glow:rgba(201,168,76,0.05);
+      --text:#E8E8E0;--muted:#555555;
+      --green-bg:rgba(76,175,130,0.10);--red-bg:rgba(207,102,121,0.10);--blue-bg:rgba(91,143,185,0.10);
+      --mono:'JetBrains Mono',monospace;--serif:'DM Serif Display',serif;--sans:'Instrument Sans',sans-serif;
+    }
+    html{font-size:14px;}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;overflow-x:hidden;}
+
+    /* SIDEBAR */
+    .sidebar{width:224px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:100;}
+    .sidebar-logo{padding:26px 20px 18px;border-bottom:1px solid var(--border);}
+    .logo-mark{font-family:var(--serif);font-size:1.5rem;color:var(--text);letter-spacing:-0.02em;}
+    .logo-mark span{color:var(--gold);}
+    .logo-sub{font-family:var(--mono);font-size:0.58rem;color:var(--muted);letter-spacing:0.14em;margin-top:3px;}
+    .nav{padding:14px 0;flex:1;overflow-y:auto;}
+    .nav-section{font-family:var(--mono);font-size:0.56rem;color:var(--muted);letter-spacing:0.16em;padding:14px 20px 5px;}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 20px;color:var(--muted);cursor:pointer;font-size:0.82rem;font-weight:500;transition:all 0.15s;border-left:2px solid transparent;}
+    .nav-item:hover{color:var(--text);background:var(--surface2);}
+    .nav-item.active{color:var(--gold);border-left-color:var(--gold);background:var(--gold-glow);}
+    .nav-icon{font-size:0.85rem;width:16px;text-align:center;opacity:0.8;}
+    .nav-badge{margin-left:auto;background:var(--gold-dim);color:var(--gold);font-family:var(--mono);font-size:0.58rem;padding:2px 6px;border-radius:3px;}
+    .nav-badge-red{margin-left:auto;background:var(--red-bg);color:#CF6679;font-family:var(--mono);font-size:0.58rem;padding:2px 6px;border-radius:3px;}
+    .sidebar-footer{padding:14px 20px;border-top:1px solid var(--border);}
+    .client-info{display:flex;align-items:center;gap:10px;}
+    .client-avatar{width:32px;height:32px;background:var(--gold-dim);border:1px solid rgba(201,168,76,0.3);border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:0.62rem;color:var(--gold);font-weight:600;}
+    .client-name{font-size:0.8rem;font-weight:600;}
+    .client-plan{font-family:var(--mono);font-size:0.58rem;color:var(--gold);margin-top:2px;}
+
+    /* MAIN */
+    .main{margin-left:224px;flex:1;min-height:100vh;display:flex;flex-direction:column;}
+
+    /* TOPBAR */
+    .topbar{height:54px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 26px;gap:14px;background:var(--surface);position:sticky;top:0;z-index:50;}
+    .topbar-title{font-family:var(--serif);font-size:1rem;color:var(--text);}
+    .topbar-bc{font-family:var(--mono);font-size:0.62rem;color:var(--muted);}
+    .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+    .status-pill{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:0.62rem;color:#4CAF82;background:var(--green-bg);padding:5px 12px;border-radius:20px;border:1px solid rgba(76,175,130,0.2);}
+    .status-dot{width:6px;height:6px;border-radius:50%;background:#4CAF82;animation:pulse 2s infinite;}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+    .btn{font-family:var(--mono);font-size:0.62rem;padding:6px 14px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text);letter-spacing:0.04em;transition:all 0.15s;}
+    .btn:hover{border-color:var(--gold);color:var(--gold);}
+    .btn-gold{background:var(--gold);color:#000;border-color:var(--gold);font-weight:700;}
+    .btn-gold:hover{background:#D4B560;}
+
+    /* TICKER */
+    .live-ticker{background:linear-gradient(90deg,rgba(201,168,76,0.05),transparent);border-bottom:1px solid var(--border);padding:8px 26px;display:flex;align-items:center;gap:12px;overflow:hidden;}
+    .ticker-label{font-family:var(--mono);font-size:0.56rem;color:var(--gold);white-space:nowrap;background:var(--gold-dim);padding:3px 8px;border-radius:3px;letter-spacing:0.08em;}
+    .ticker-scroll{display:flex;gap:28px;overflow:hidden;flex:1;}
+    .ticker-item{font-family:var(--mono);font-size:0.6rem;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:6px;}
+    .t-green{width:5px;height:5px;border-radius:50%;background:#4CAF82;}
+    .t-gold{width:5px;height:5px;border-radius:50%;background:var(--gold);}
+    .t-red{width:5px;height:5px;border-radius:50%;background:#CF6679;}
+
+    /* CONTENT */
+    .content{padding:24px 26px;flex:1;}
+
+    /* DEMO BANNER */
+    .demo-banner{background:linear-gradient(135deg,rgba(201,168,76,0.07),rgba(201,168,76,0.02));border:1px solid rgba(201,168,76,0.18);border-radius:8px;padding:13px 18px;display:flex;align-items:center;gap:14px;margin-bottom:20px;animation:fadeUp 0.3s ease;}
+    .demo-tag{font-family:var(--mono);font-size:0.56rem;background:var(--gold);color:#000;padding:3px 8px;border-radius:3px;font-weight:700;white-space:nowrap;}
+    .demo-text{font-size:0.78rem;color:var(--muted);flex:1;}
+    .demo-text strong{color:var(--text);}
+    .demo-cta{font-family:var(--mono);font-size:0.6rem;color:var(--gold);border:1px solid rgba(201,168,76,0.35);padding:7px 16px;border-radius:4px;cursor:pointer;background:none;white-space:nowrap;text-decoration:none;transition:all 0.15s;}
+    .demo-cta:hover{background:var(--gold-dim);}
+
+    /* STATS */
+    .stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+    .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 16px;position:relative;overflow:hidden;animation:fadeUp 0.4s ease both;}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+    .stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--gold),transparent);opacity:0.35;}
+    .stat-card.green::after{background:linear-gradient(90deg,#4CAF82,transparent);}
+    .stat-card.blue::after{background:linear-gradient(90deg,#5B8FB9,transparent);}
+    .stat-card.red::after{background:linear-gradient(90deg,#CF6679,transparent);}
+    .stat-card.purple::after{background:linear-gradient(90deg,#9B72CF,transparent);}
+    .stat-label{font-family:var(--mono);font-size:0.54rem;color:var(--muted);letter-spacing:0.1em;margin-bottom:7px;}
+    .stat-value{font-family:var(--serif);font-size:1.8rem;color:var(--text);line-height:1;margin-bottom:5px;}
+    .stat-sub{font-family:var(--mono);font-size:0.56rem;color:var(--muted);}
+    .up{color:#4CAF82!important;}.warn{color:var(--gold)!important;}.danger{color:#CF6679!important;}
+
+    /* REGS */
+    .regs-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+    .reg-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:11px 14px;display:flex;align-items:center;gap:10px;animation:fadeUp 0.5s ease both;}
+    .reg-check{width:20px;height:20px;border-radius:50%;background:var(--green-bg);border:1px solid rgba(76,175,130,0.25);display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#4CAF82;flex-shrink:0;}
+    .reg-name{font-family:var(--mono);font-size:0.64rem;color:var(--text);font-weight:600;}
+    .reg-art{font-family:var(--mono);font-size:0.54rem;color:var(--muted);margin-top:2px;}
+
+    /* BADGES */
+    .badge{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:0.54rem;padding:3px 7px;border-radius:3px;font-weight:600;letter-spacing:0.03em;white-space:nowrap;}
+    .bg{background:var(--green-bg);color:#4CAF82;}
+    .br{background:var(--red-bg);color:#CF6679;}
+    .bo{background:var(--gold-dim);color:var(--gold);}
+    .bb{background:var(--blue-bg);color:#5B8FB9;}
+    .bm{background:rgba(85,85,85,0.12);color:var(--muted);}
+
+    /* TWO COL */
+    .two-col{display:grid;grid-template-columns:1fr 326px;gap:14px;}
+    .left-col{display:flex;flex-direction:column;gap:14px;}
+    .right-col{display:flex;flex-direction:column;gap:14px;}
+
+    /* PANEL */
+    .panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;animation:fadeUp 0.5s ease both;}
+    .panel-header{display:flex;align-items:center;padding:12px 18px;border-bottom:1px solid var(--border);gap:10px;}
+    .panel-title{font-family:var(--mono);font-size:0.58rem;letter-spacing:0.1em;color:var(--muted);}
+    .panel-action{margin-left:auto;font-family:var(--mono);font-size:0.56rem;color:var(--gold);cursor:pointer;text-decoration:none;transition:opacity 0.15s;}
+    .panel-action:hover{opacity:0.7;}
+
+    /* TABLE */
+    .rt{width:100%;border-collapse:collapse;}
+    .rt th{font-family:var(--mono);font-size:0.54rem;color:var(--muted);letter-spacing:0.1em;padding:8px 16px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);white-space:nowrap;}
+    .rt td{padding:9px 16px;font-size:0.76rem;border-bottom:1px solid rgba(30,30,30,0.8);transition:background 0.1s;}
+    .rt tr:last-child td{border-bottom:none;}
+    .rt tr:hover td{background:var(--surface2);}
+    .rid{font-family:var(--mono);font-size:0.66rem;color:var(--gold);}
+    .rhash{font-family:var(--mono);font-size:0.6rem;color:var(--muted);}
+
+    /* CHART */
+    .chart-wrap{padding:16px 18px 12px;}
+    .chart-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;}
+    .chart-title{font-family:var(--mono);font-size:0.58rem;letter-spacing:0.1em;color:var(--muted);}
+    .chart-total{font-family:var(--serif);font-size:1.4rem;color:var(--text);}
+    .chart-sub{font-family:var(--mono);font-size:0.56rem;color:#4CAF82;}
+    .chart-area{height:96px;display:flex;align-items:flex-end;gap:5px;}
+    .bw{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;}
+    .bar{width:100%;border-radius:3px 3px 0 0;background:rgba(201,168,76,0.11);border-top:1px solid rgba(201,168,76,0.28);transition:height 0.8s cubic-bezier(0.34,1.56,0.64,1);min-height:3px;cursor:pointer;}
+    .bar:hover{background:rgba(201,168,76,0.22);}
+    .bar.today{background:rgba(201,168,76,0.24);border-top:2px solid var(--gold);}
+    .blbl{font-family:var(--mono);font-size:0.5rem;color:var(--muted);}
+    .blbl.tdy{color:var(--gold);}
+    .btt{position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-family:var(--mono);font-size:0.56rem;color:var(--text);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity 0.15s;}
+    .bw:hover .btt{opacity:1;}
+
+    /* LAYERS */
+    .layers-list{padding:4px 0;}
+    .layer-row{display:flex;align-items:center;padding:9px 16px;gap:11px;border-bottom:1px solid rgba(30,30,30,0.8);transition:background 0.1s;}
+    .layer-row:last-child{border-bottom:none;}
+    .layer-row:hover{background:var(--surface2);}
+    .lnum{font-family:var(--mono);font-size:0.54rem;color:var(--gold);background:var(--gold-dim);padding:2px 6px;border-radius:3px;font-weight:600;width:26px;text-align:center;}
+    .linfo{flex:1;}
+    .lname{font-size:0.78rem;font-weight:600;}
+    .ldesc{font-family:var(--mono);font-size:0.54rem;color:var(--muted);margin-top:1px;}
+    .lok{width:7px;height:7px;border-radius:50%;background:#4CAF82;box-shadow:0 0 5px rgba(76,175,130,0.4);flex-shrink:0;}
+
+    /* RECEIPT DETAIL */
+    .rdetail{padding:14px 16px;font-family:var(--mono);font-size:0.62rem;line-height:1.9;}
+    .rdetail .k{color:rgba(201,168,76,0.65);}
+    .rdetail .v{color:var(--text);}
+    .rdetail .ok{color:#4CAF82;}
+    .rdetail .wr{color:var(--gold);}
+    .verify-box{padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;background:rgba(76,175,130,0.03);}
+    .vtext{font-family:var(--mono);font-size:0.58rem;color:#4CAF82;flex:1;}
+    .vtsa{font-family:var(--mono);font-size:0.54rem;color:var(--muted);}
+
+    /* API KEY */
+    .akey-sec{padding:13px 16px;border-bottom:1px solid var(--border);}
+    .akey-lbl{font-family:var(--mono);font-size:0.54rem;color:var(--muted);letter-spacing:0.1em;margin-bottom:7px;}
+    .akey-val{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:7px 11px;}
+    .akey-txt{font-family:var(--mono);font-size:0.62rem;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .cpbtn{font-family:var(--mono);font-size:0.54rem;color:var(--gold);cursor:pointer;padding:3px 8px;border:1px solid rgba(201,168,76,0.2);border-radius:3px;background:none;white-space:nowrap;transition:all 0.15s;}
+    .cpbtn:hover{background:var(--gold-dim);}
+    .usage-sec{padding:13px 16px;}
+    .usage-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px;}
+    .usage-lbl{font-family:var(--mono);font-size:0.54rem;color:var(--muted);letter-spacing:0.1em;}
+    .usage-cnt{font-family:var(--mono);font-size:0.7rem;color:var(--text);}
+    .ubg{background:var(--surface2);border-radius:3px;height:4px;overflow:hidden;margin-bottom:10px;}
+    .ufill{height:100%;background:linear-gradient(90deg,var(--gold),rgba(201,168,76,0.5));border-radius:3px;transition:width 1.2s ease;}
+    .ugrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px;}
+    .ustat{text-align:center;}
+    .uval{font-family:var(--mono);font-size:0.95rem;}
+    .ulbl{font-family:var(--mono);font-size:0.52rem;color:var(--muted);margin-top:2px;}
+  </style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">Vault<span>ra</span></div>
+    <div class="logo-sub">COMPLIANCE DASHBOARD</div>
+  </div>
+  <div class="nav">
+    <div class="nav-section">OVERVIEW</div>
+    <div class="nav-item active"><span class="nav-icon">◈</span> Dashboard</div>
+    <div class="nav-item"><span class="nav-icon">◉</span> Receipts <span class="nav-badge">1,284</span></div>
+    <div class="nav-item"><span class="nav-icon">◎</span> Agents</div>
+    <div class="nav-section">COMPLIANCE</div>
+    <div class="nav-item"><span class="nav-icon">▣</span> Audit Export</div>
+    <div class="nav-item"><span class="nav-icon">◫</span> Verify Receipt</div>
+    <div class="nav-item"><span class="nav-icon">◧</span> Ledger Integrity</div>
+    <div class="nav-item"><span class="nav-icon">⚑</span> Flagged <span class="nav-badge-red">3</span></div>
+    <div class="nav-section">ACCOUNT</div>
+    <div class="nav-item"><span class="nav-icon">◻</span> API Keys</div>
+    <div class="nav-item"><span class="nav-icon">◷</span> Usage &amp; Billing</div>
+    <div class="nav-item"><span class="nav-icon">◈</span> Settings</div>
+    <div class="nav-item"><span class="nav-icon">?</span> Documentation</div>
+  </div>
+  <div class="sidebar-footer">
+    <div class="client-info">
+      <div class="client-avatar">FC</div>
+      <div>
+        <div class="client-name">Fintech Corp S.A.</div>
+        <div class="client-plan">● STARTER PLAN</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Overview</div>
+    <span class="topbar-bc">/ Dashboard</span>
+    <div class="topbar-right">
+      <div class="status-pill"><div class="status-dot"></div>ALL 7 LAYERS OPERATIONAL</div>
+      <button class="btn">↓ Export Audit Report</button>
+      <button class="btn btn-gold">+ Register Agent</button>
+    </div>
+  </div>
+
+  <div class="live-ticker">
+    <span class="ticker-label">● LIVE</span>
+    <div class="ticker-scroll" id="ticker"></div>
+  </div>
+
+  <div class="content">
+
+    <div class="demo-banner">
+      <span class="demo-tag">DEMO</span>
+      <div class="demo-text"><strong>Preview Mode</strong> — Simulated data showing how Vaultra monitors your AI agents in real time. Every decision generates a tamper-proof Compliance Receipt, ready for EU AI Act audits.</div>
+      <a href="https://vaultra.io#contact" class="demo-cta">REQUEST EARLY ACCESS →</a>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card" style="animation-delay:.05s">
+        <div class="stat-label">RECEIPTS GENERATED</div>
+        <div class="stat-value" id="c1">0</div>
+        <div class="stat-sub up">↑ 23% this month</div>
+      </div>
+      <div class="stat-card green" style="animation-delay:.1s">
+        <div class="stat-label">COMPLIANCE RATE</div>
+        <div class="stat-value" id="c2">0%</div>
+        <div class="stat-sub up">↑ EU AI Act ready</div>
+      </div>
+      <div class="stat-card blue" style="animation-delay:.15s">
+        <div class="stat-label">ACTIVE AGENTS</div>
+        <div class="stat-value" id="c3">0</div>
+        <div class="stat-sub">credit-bot, kyc-agent +2</div>
+      </div>
+      <div class="stat-card red" style="animation-delay:.2s">
+        <div class="stat-label">FLAGGED DECISIONS</div>
+        <div class="stat-value" id="c4">0</div>
+        <div class="stat-sub danger">⚠ Awaiting human review</div>
+      </div>
+      <div class="stat-card purple" style="animation-delay:.25s">
+        <div class="stat-label">RFC 3161 STAMPS</div>
+        <div class="stat-value" id="c5">0</div>
+        <div class="stat-sub up">✓ eIDAS certified</div>
+      </div>
+    </div>
+
+    <div class="regs-row">
+      <div class="reg-card" style="animation-delay:.3s">
+        <div class="reg-check">✓</div>
+        <div><div class="reg-name">EU AI Act</div><div class="reg-art">Art. 13 · 14 · 17</div></div>
+        <span class="badge bg" style="margin-left:auto">COVERED</span>
+      </div>
+      <div class="reg-card" style="animation-delay:.35s">
+        <div class="reg-check">✓</div>
+        <div><div class="reg-name">GDPR</div><div class="reg-art">Art. 22 — Automated decisions</div></div>
+        <span class="badge bg" style="margin-left:auto">COVERED</span>
+      </div>
+      <div class="reg-card" style="animation-delay:.4s">
+        <div class="reg-check">✓</div>
+        <div><div class="reg-name">eIDAS</div><div class="reg-art">Art. 41 — Trusted timestamps</div></div>
+        <span class="badge bg" style="margin-left:auto">COVERED</span>
+      </div>
+      <div class="reg-card" style="animation-delay:.45s">
+        <div class="reg-check">✓</div>
+        <div><div class="reg-name">DORA</div><div class="reg-art">Operational resilience logging</div></div>
+        <span class="badge bg" style="margin-left:auto">COVERED</span>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="left-col">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">RECENT COMPLIANCE RECEIPTS</div>
+            <span class="badge bg" style="margin-right:8px">● LIVE</span>
+            <a class="panel-action" href="#">View all →</a>
+          </div>
+          <table class="rt">
+            <thead>
+              <tr>
+                <th>RECEIPT ID</th><th>AGENT</th><th>DECISION</th>
+                <th>TIMESTAMP UTC</th><th>CHAIN</th><th>INTEGRITY</th>
+                <th>RFC 3161</th><th>REGULATION</th>
+              </tr>
+            </thead>
+            <tbody id="rtb">
+              <tr><td><span class="rid">VLT-8f2a</span></td><td>credit-bot-v2</td><td><span class="badge br">LOAN REJECTED</span></td><td><span class="rhash">2026-04-05 14:32:01</span></td><td><span class="badge bg">Block #1847</span></td><td><span class="badge bg">✓ VALID</span></td><td><span class="badge bg">✓ STAMPED</span></td><td><span class="badge bm">EU AI Act</span></td></tr>
+              <tr><td><span class="rid">VLT-3c91</span></td><td>kyc-agent-v1</td><td><span class="badge bg">KYC APPROVED</span></td><td><span class="rhash">2026-04-05 14:28:44</span></td><td><span class="badge bg">Block #1846</span></td><td><span class="badge bg">✓ VALID</span></td><td><span class="badge bg">✓ STAMPED</span></td><td><span class="badge bm">GDPR Art.22</span></td></tr>
+              <tr><td><span class="rid">VLT-7d04</span></td><td>fraud-detector</td><td><span class="badge bo">FRAUD FLAGGED</span></td><td><span class="rhash">2026-04-05 14:21:17</span></td><td><span class="badge bg">Block #1845</span></td><td><span class="badge bo">⚠ REVIEW</span></td><td><span class="badge bg">✓ STAMPED</span></td><td><span class="badge bm">DORA</span></td></tr>
+              <tr><td><span class="rid">VLT-2b55</span></td><td>credit-bot-v2</td><td><span class="badge bg">LOAN APPROVED</span></td><td><span class="rhash">2026-04-05 14:15:33</span></td><td><span class="badge bg">Block #1844</span></td><td><span class="badge bg">✓ VALID</span></td><td><span class="badge bg">✓ STAMPED</span></td><td><span class="badge bm">EU AI Act</span></td></tr>
+              <tr><td><span class="rid">VLT-9e18</span></td><td>credit-bot-v2</td><td><span class="badge br">LOAN REJECTED</span></td><td><span class="rhash">2026-04-05 14:09:52</span></td><td><span class="badge bg">Block #1843</span></td><td><span class="badge bg">✓ VALID</span></td><td><span class="badge bg">✓ STAMPED</span></td><td><span class="badge bm">EU AI Act</span></td></tr>
+              <tr><td><span class="rid">VLT-1a73</span></td><td>kyc-agent-v1</td><td><span class="badge bb">HUMAN GATE</span></td><td><span class="rhash">2026-04-05 14:02:11</span></td><td><span class="badge bg">Block #1842</span></td><td><span class="badge bb">◷ PENDING</span></td><td><span class="badge bg">✓ STAMPED</span></td><td><span class="badge bm">GDPR Art.22</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <div class="chart-wrap">
+            <div class="chart-header">
+              <div>
+                <div class="chart-title">DECISIONS — LAST 14 DAYS</div>
+                <div class="chart-total">1,284 <span style="font-family:var(--sans);font-size:0.78rem;color:var(--muted)">total</span></div>
+              </div>
+              <div style="text-align:right">
+                <div class="chart-sub">↑ 23% vs previous period</div>
+                <div style="font-family:var(--mono);font-size:0.54rem;color:var(--muted);margin-top:2px">Peak: 189 on Apr 4</div>
+              </div>
+            </div>
+            <div class="chart-area" id="chart"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">COMPLIANCE LAYERS</div>
+            <span class="badge bg">7/7 ACTIVE</span>
+          </div>
+          <div class="layers-list">
+            <div class="layer-row"><span class="lnum">01</span><div class="linfo"><div class="lname">Identity</div><div class="ldesc">Ed25519 cryptographic signing</div></div><span class="lok"></span></div>
+            <div class="layer-row"><span class="lnum">02</span><div class="linfo"><div class="lname">Sanitizer</div><div class="ldesc">Injection &amp; prompt detection</div></div><span class="lok"></span></div>
+            <div class="layer-row"><span class="lnum">03</span><div class="linfo"><div class="lname">Ledger</div><div class="ldesc">Immutable blockchain audit chain</div></div><span class="lok"></span></div>
+            <div class="layer-row"><span class="lnum">04</span><div class="linfo"><div class="lname">Guardian</div><div class="ldesc">ML anomaly detection</div></div><span class="lok"></span></div>
+            <div class="layer-row"><span class="lnum">05</span><div class="linfo"><div class="lname">Human Gate</div><div class="ldesc">Irreversible action control</div></div><span class="lok"></span></div>
+            <div class="layer-row"><span class="lnum">06</span><div class="linfo"><div class="lname">Timestamper</div><div class="ldesc">RFC 3161 / eIDAS Art. 41</div></div><span class="lok"></span></div>
+            <div class="layer-row"><span class="lnum">07</span><div class="linfo"><div class="lname">API Keys</div><div class="ldesc">SHA-256 client authentication</div></div><span class="lok"></span></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">RECEIPT DETAIL — VLT-8f2a</div>
+            <a class="panel-action" href="#">↓ PDF</a>
+          </div>
+          <div class="rdetail">
+            <div><span class="k">receipt_id  </span><span class="v">VLT-8f2a3c9100</span></div>
+            <div><span class="k">agent_id    </span><span class="v">credit-bot-v2.3</span></div>
+            <div><span class="k">decision    </span><span class="v">REJECT loan #4821</span></div>
+            <div><span class="k">reasoning   </span><span class="v">score=612 &lt; 650</span></div>
+            <div><span class="k">input_hash  </span><span class="v">a3f9c2d1e8b4...</span></div>
+            <div><span class="k">agent_sign  </span><span class="v">Ed25519 ✓</span></div>
+            <div><span class="k">block       </span><span class="v">#1847 — chain ✓</span></div>
+            <div><span class="k">rfc3161_tsr </span><span class="ok">✓ 2026-04-05T14:32:01Z</span></div>
+            <div><span class="k">tsa         </span><span class="v">freetsa.org</span></div>
+            <div><span class="k">eu_ai_act   </span><span class="ok">✓ Art. 13, 14, 17</span></div>
+            <div><span class="k">gdpr        </span><span class="ok">✓ Art. 22</span></div>
+            <div><span class="k">eidas       </span><span class="ok">✓ Art. 41 certified</span></div>
+            <div><span class="k">dora        </span><span class="ok">✓ Resilience logged</span></div>
+            <div><span class="k">human_gate  </span><span class="wr">not required</span></div>
+          </div>
+          <div class="verify-box">
+            <span style="font-size:0.85rem">🔒</span>
+            <span class="vtext">Tamper-proof — cannot be altered by any party</span>
+            <span class="vtsa">TSA: freetsa.org</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">API KEY</div>
+            <a class="panel-action" href="#">Rotate →</a>
+          </div>
+          <div class="akey-sec">
+            <div class="akey-lbl">ACTIVE KEY — STARTER PLAN</div>
+            <div class="akey-val">
+              <span class="akey-txt">vaultra_sk_v1_8f2a3c91••••••••••••••••••••••••</span>
+              <button class="cpbtn" onclick="this.textContent='COPIED!';setTimeout(()=>this.textContent='COPY',2000)">COPY</button>
+            </div>
+          </div>
+          <div class="usage-sec">
+            <div class="usage-row">
+              <span class="usage-lbl">MONTHLY USAGE</span>
+              <span class="usage-cnt">1,284 / 10,000</span>
+            </div>
+            <div class="ubg"><div class="ufill" id="ufill" style="width:0%"></div></div>
+            <div class="ugrid">
+              <div class="ustat"><div class="uval" style="color:var(--text)" id="cu">0</div><div class="ulbl">USED</div></div>
+              <div class="ustat"><div class="uval" style="color:#4CAF82">8,716</div><div class="ulbl">REMAINING</div></div>
+              <div class="ustat"><div class="uval" style="color:var(--gold)" id="cp">0%</div><div class="ulbl">USED %</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function animCount(el,target,suffix='',dur=1200){
+  const s=performance.now();
+  function step(n){
+    const p=Math.min((n-s)/dur,1);
+    const e=1-Math.pow(1-p,3);
+    const v=target%1===0?Math.round(e*target).toLocaleString():(e*target).toFixed(1);
+    el.textContent=v+suffix;
+    if(p<1)requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+window.addEventListener('load',()=>{
+  animCount(document.getElementById('c1'),1284);
+  animCount(document.getElementById('c2'),99.8,'%');
+  animCount(document.getElementById('c3'),4);
+  animCount(document.getElementById('c4'),3);
+  animCount(document.getElementById('c5'),1284);
+  animCount(document.getElementById('cu'),1284);
+  animCount(document.getElementById('cp'),12.8,'%');
+  setTimeout(()=>document.getElementById('ufill').style.width='12.84%',300);
+});
+
+// Chart
+const vals=[42,67,55,89,103,124,98,142,118,156,134,171,148,189];
+const days=['M','T','W','T','F','S','S','M','T','W','T','F','S','TODAY'];
+const chart=document.getElementById('chart');
+const mx=Math.max(...vals);
+vals.forEach((v,i)=>{
+  const w=document.createElement('div');w.className='bw';
+  const tt=document.createElement('div');tt.className='btt';tt.textContent=v+' decisions';
+  const b=document.createElement('div');b.className='bar'+(i===vals.length-1?' today':'');b.style.height='0px';
+  const l=document.createElement('div');l.className='blbl'+(i===vals.length-1?' tdy':'');l.textContent=days[i];
+  w.appendChild(tt);w.appendChild(b);w.appendChild(l);chart.appendChild(w);
+  setTimeout(()=>b.style.height=Math.round((v/mx)*88)+'px',150+i*50);
+});
+
+// Ticker
+const ticker=document.getElementById('ticker');
+const evts=[
+  {c:'t-green',t:'VLT-8f2a — credit-bot-v2 — LOAN REJECTED — RFC 3161 stamped ✓'},
+  {c:'t-green',t:'VLT-3c91 — kyc-agent-v1 — KYC APPROVED — chain #1846 verified ✓'},
+  {c:'t-gold', t:'VLT-7d04 — fraud-detector — FLAGGED — awaiting human review'},
+  {c:'t-green',t:'VLT-2b55 — credit-bot-v2 — LOAN APPROVED — eIDAS Art.41 ✓'},
+  {c:'t-green',t:'VLT-9e18 — LOAN REJECTED — GDPR Art.22 compliant ✓'},
+  {c:'t-green',t:'Ledger integrity — 1,847 blocks — chain intact ✓'},
+  {c:'t-green',t:'TSA connection — freetsa.org — operational ✓'},
+  {c:'t-green',t:'All 7 compliance layers operational ✓'},
+];
+let html='';
+[...evts,...evts].forEach(e=>html+=`<div class="ticker-item"><span class="${e.c}"></span>${e.t}</div>`);
+ticker.innerHTML=html;
+let off=0;
+(function scroll(){off+=0.5;if(off>ticker.scrollWidth/2)off=0;ticker.style.transform=`translateX(-${off}px)`;requestAnimationFrame(scroll);})();
+
+// Live receipts every 9s
+const ags=['credit-bot-v2','kyc-agent-v1','fraud-detector','aml-scanner'];
+const decs=[
+  {c:'bg',t:'LOAN APPROVED'},{c:'br',t:'LOAN REJECTED'},
+  {c:'bg',t:'KYC APPROVED'},{c:'bo',t:'FRAUD FLAGGED'},{c:'bg',t:'AML CLEARED'},
+];
+const regs=['EU AI Act','GDPR Art.22','DORA','eIDAS'];
+let bn=1848;
+setInterval(()=>{
+  const ag=ags[Math.floor(Math.random()*ags.length)];
+  const dc=decs[Math.floor(Math.random()*decs.length)];
+  const rg=regs[Math.floor(Math.random()*regs.length)];
+  const id='VLT-'+Math.random().toString(16).slice(2,6);
+  const ts=new Date().toISOString().slice(0,19).replace('T',' ');
+  const tb=document.getElementById('rtb');
+  const row=document.createElement('tr');
+  row.style.animation='fadeUp 0.4s ease';
+  row.innerHTML=`<td><span class="rid">${id}</span></td><td>${ag}</td><td><span class="badge ${dc.c}">${dc.t}</span></td><td><span class="rhash">${ts}</span></td><td><span class="badge bg">Block #${bn++}</span></td><td><span class="badge bg">✓ VALID</span></td><td><span class="badge bg">✓ STAMPED</span></td><td><span class="badge bm">${rg}</span></td>`;
+  tb.insertBefore(row,tb.firstChild);
+  if(tb.children.length>8)tb.removeChild(tb.lastChild);
+},9000);
+</script>
+</body>
+</html>
