@@ -58,7 +58,7 @@ Vaultra is a **7-layer security and compliance framework** for AI agents that ge
 |-------|--------|----------|
 | 1 — Identity | `identity.py` | Ed25519 cryptographic identity per agent |
 | 2 — Sanitizer | `sanitizer.py` | Input validation + prompt injection detection |
-| 3 — Ledger | `ledger.py` | Immutable blockchain-lite audit chain (SQLite) |
+| 3 — Ledger | `ledger.py` | Immutable hash-chained audit ledger (SQLite) |
 | 4 — Guardian | `guardian.py` | ML-based output anomaly detection |
 | 5 — Human Gate | `human_gate.py` | Authorization control for irreversible actions |
 | 6 — Timestamper | `timestamper.py` | **RFC 3161 trusted timestamp — eIDAS legal standard** |
