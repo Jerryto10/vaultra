@@ -19,6 +19,7 @@ Workflow:
   receipt_hash → TSA request → signed .tsr token → stored in Ledger
 """
 
+import os
 import hashlib
 import struct
 import base64
@@ -35,7 +36,7 @@ TSA_SERVERS = {
     "comodo":   "http://timestamp.comodoca.com",   # Production backup
 }
 
-DEFAULT_TSA = "digicert"
+DEFAULT_TSA = os.environ.get("VAULTRA_TSA", "digicert")
 
 
 # ── Result dataclass ──────────────────────────────────────────────────
