@@ -43,7 +43,7 @@ Vaultra is a **7-layer security and compliance framework** for AI agents that ge
 │  Scope:       credit_decisions (authorized)         │
 │  Human gate:  Not required (auto-decision)          │
 │  Chain:       Block #1847 — integrity ✅            │
-│  RFC 3161:    Token signed by freetsa.org ✅        │
+│  RFC 3161:    Token signed by DigiCert TSA ✅       │
 │  Legal basis: eIDAS Regulation (EU) No 910/2014 ✅  │
 │  Compliance:  EU AI Act Art. 13 ✅                  │
 │               GDPR Art. 22 ✅                       │
@@ -72,8 +72,8 @@ Every Compliance Receipt is hashed and submitted to a Trusted Timestamp Authorit
 
 - **Standard:** RFC 3161 — Internet X.509 PKI Time Stamp Protocol
 - **Legal basis:** eIDAS Regulation (EU) No 910/2014, Article 41
-- **TSA (MVP):** freetsa.org (public, free)
-- **TSA (Production):** DigiCert / Comodo (~$100–$300/year)
+- **TSA:** DigiCert (https://timestamp.digicert.com)
+
 - **Verification:** Any auditor can independently verify the token — no trust in Vaultra required
 
 ```python
