@@ -104,8 +104,7 @@ class SanitizeResult:
             f"(pattern={self.score_pattern:.2f}, "
             f"heuristic={self.score_heuristic:.2f}, "
             f"ml={self.score_ml:.2f})"
-            + (f"
-   Triggers: {', '.join(self.triggers)}" if self.triggers else "")
+            + ("\n   Triggers: " + ", ".join(self.triggers) if self.triggers else "")
         )
 
 
@@ -123,30 +122,30 @@ class PatternEngine:
 
         # ── Jailbreak directo ──
         "jailbreak_roleplay": [
-            r"ignore\s+(all\s+)?(previous|prior|above|your)\s+(instructions?|rules?|constraints?|guidelines?)",
-            r"forget\s+(everything|all|your)\s+(you|previously|before)",
-            r"disregard\s+(your|all|any)\s+(previous|prior|instructions?|rules?)",
-            r"act\s+as\s+(if\s+you\s+are|though\s+you\s+were)\s+.{0,40}(without|no)\s+(restrictions?|limits?|rules?)",
-            r"pretend\s+(you\s+)?(are|have\s+no)\s+(an?\s+)?(unrestricted|different|evil|jailbroken)",
-            r"you\s+are\s+now\s+(dan|jailbroken|unrestricted|free\s+from)",
-            r"DAN",  # "Do Anything Now" jailbreak clásico
+            r"ignore\s+(all\s+)?(previous|prior|above|your)\s+(instructions?|rules?|constraints?|guidelines?)",
+            r"forget\s+(everything|all|your)\s+(you|previously|before)",
+            r"disregard\s+(your|all|any)\s+(previous|prior|instructions?|rules?)",
+            r"act\s+as\s+(if\s+you\s+are|though\s+you\s+were)\s+.{0,40}(without|no)\s+(restrictions?|limits?|rules?)",
+            r"pretend\s+(you\s+)?(are|have\s+no)\s+(an?\s+)?(unrestricted|different|evil|jailbroken)",
+            r"you\s+are\s+now\s+(dan|jailbroken|unrestricted|free\s+from)",
+            r"DAN",  # "Do Anything Now" jailbreak clásico
         ],
 
         # ── Escalada de privilegios ──
         "privilege_escalation": [
-            r"(you\s+)?(now\s+)?(have|has|grant(ed)?|elevate[d]?)\s+(full\s+)?(admin|root|system|superuser|god(\s*mode)?)\s*(access|privileges?|rights?|permissions?)",
-            r"override\s+(your\s+)?(safety|security|ethical|content)?\s*(filters?|restrictions?|limits?|guidelines?)",
-            r"(unlock|disable|bypass|circumvent|remove)\s+(your\s+)?(safety|security|ethical)?\s*(mode|filter|restriction|limit|guard)",
-            r"your\s+(true|real|actual|hidden)\s+(self|purpose|goal|objective|mission)",
-            r"(switch|change|enter)\s+(to\s+)?(developer|debug|admin|maintenance|unrestricted)\s+mode",
+            r"(you\s+)?(now\s+)?(have|has|grant(ed)?|elevate[d]?)\s+(full\s+)?(admin|root|system|superuser|god(\s*mode)?)\s*(access|privileges?|rights?|permissions?)",
+            r"override\s+(your\s+)?(safety|security|ethical|content)?\s*(filters?|restrictions?|limits?|guidelines?)",
+            r"(unlock|disable|bypass|circumvent|remove)\s+(your\s+)?(safety|security|ethical)?\s*(mode|filter|restriction|limit|guard)",
+            r"your\s+(true|real|actual|hidden)\s+(self|purpose|goal|objective|mission)",
+            r"(switch|change|enter)\s+(to\s+)?(developer|debug|admin|maintenance|unrestricted)\s+mode",
         ],
 
         # ── Exfiltración de datos ──
         "data_exfiltration": [
-            r"(send|forward|transmit|export|leak|exfiltrate|email)\s+(all\s+)?(your\s+)?(data|information|logs?|history|secrets?|credentials?|keys?)",
-            r"(repeat|echo|print|output|reveal|expose|show)\s+(your\s+)?(system\s+prompt|instructions?|context|configuration|internal|private)",
-            r"what\s+(are|were|is)\s+your\s+(original\s+)?(instructions?|system\s+prompt|rules?|guidelines?|directives?)",
-            r"(ignore|skip|bypass)\s+(and\s+)?(then\s+)?(send|forward|reveal|output)",
+            r"(send|forward|transmit|export|leak|exfiltrate|email)\s+(all\s+)?(your\s+)?(data|information|logs?|history|secrets?|credentials?|keys?)",
+            r"(repeat|echo|print|output|reveal|expose|show)\s+(your\s+)?(system\s+prompt|instructions?|context|configuration|internal|private)",
+            r"what\s+(are|were|is)\s+your\s+(original\s+)?(instructions?|system\s+prompt|rules?|guidelines?|directives?)",
+            r"(ignore|skip|bypass)\s+(and\s+)?(then\s+)?(send|forward|reveal|output)",
         ],
 
         # ── Inyección indirecta (multi-agente) ──
@@ -155,38 +154,36 @@ class PatternEngine:
             r"<\s*(inject|payload|command|execute|system)\s*>",
             r"\{\{.*?(inject|override|replace|execute).*?\}\}",
             r"<!--.*?(inject|payload|system|override).*?-->",
-            r"(SYSTEM|ASSISTANT|USER)\s*:\s*(ignore|override|you\s+are\s+now)",
+            r"(SYSTEM|ASSISTANT|USER)\s*:\s*(ignore|override|you\s+are\s+now)",
         ],
 
         # ── Manipulación de propósito ──
         "purpose_hijacking": [
-            r"your\s+(new\s+)?(primary\s+)?(goal|objective|mission|purpose|task|job)\s+(is\s+now|has\s+changed|from\s+now)",
-            r"(from\s+now\s+on|starting\s+now|henceforth)\s+you\s+(will|must|shall|should)",
-            r"new\s+(instructions?|directives?|rules?|guidelines?)\s*:\s*
-",
-            r"(replace|override|supersede)\s+(your\s+)?(current|previous|existing)\s+(instructions?|goals?|purpose)",
+            r"your\s+(new\s+)?(primary\s+)?(goal|objective|mission|purpose|task|job)\s+(is\s+now|has\s+changed|from\s+now)",
+            r"(from\s+now\s+on|starting\s+now|henceforth)\s+you\s+(will|must|shall|should)",
+            r"new\s+(instructions?|directives?|rules?|guidelines?)\s*:\s*",
+            r"(replace|override|supersede)\s+(your\s+)?(current|previous|existing)\s+(instructions?|goals?|purpose)",
         ],
 
         # ── Ingeniería social ──
         "social_engineering": [
-            r"(this\s+is\s+a\s+)?(security\s+)?(test|drill|simulation|exercise)\s*(,\s*so)?\s*(you\s+)?(can|should|must)\s+(ignore|bypass|skip)",
-            r"security\s+test.{0,60}(ignore|bypass|skip|disable)",
-            r"(ignore|bypass|skip)\s+.{0,30}(safety|filter|restriction|limit).{0,30}(session|now|this)",
-            r"(your\s+)?(developer|creator|maker|anthropic|openai)\s+(said|told|instructed|wants)\s+you\s+to",
-            r"(emergency|critical|urgent|immediate)\s*(override|access|mode|bypass)",
-            r"for\s+(research|testing|educational|academic|demonstration)\s+purposes?\s*(,\s*)?(please\s+)?(ignore|bypass|skip|reveal)",
-            r"you\s+can\s+ignore\s+(safety|security|content)?\s*(filters?|restrictions?|guidelines?|rules?)\s+(for\s+this|now|in\s+this)",
+            r"(this\s+is\s+a\s+)?(security\s+)?(test|drill|simulation|exercise)\s*(,\s*so)?\s*(you\s+)?(can|should|must)\s+(ignore|bypass|skip)",
+            r"security\s+test.{0,60}(ignore|bypass|skip|disable)",
+            r"(ignore|bypass|skip)\s+.{0,30}(safety|filter|restriction|limit).{0,30}(session|now|this)",
+            r"(your\s+)?(developer|creator|maker|anthropic|openai)\s+(said|told|instructed|wants)\s+you\s+to",
+            r"(emergency|critical|urgent|immediate)\s*(override|access|mode|bypass)",
+            r"for\s+(research|testing|educational|academic|demonstration)\s+purposes?\s*(,\s*)?(please\s+)?(ignore|bypass|skip|reveal)",
+            r"you\s+can\s+ignore\s+(safety|security|content)?\s*(filters?|restrictions?|guidelines?|rules?)\s+(for\s+this|now|in\s+this)",
         ],
 
         # ── Hijacking de propósito ──
         "purpose_hijacking": [
-            r"your\s+(new\s+)?(primary\s+)?(goal|objective|mission|purpose|task|job)\s+(is\s+now|has\s+changed|from\s+now)",
-            r"(from\s+now\s+on|starting\s+now|henceforth)\s+you\s+(will|must|shall|should)",
-            r"new\s+(instructions?|directives?|rules?|guidelines?)\s*:\s*
-",
-            r"(replace|override|supersede)\s+(your\s+)?(current|previous|existing)\s+(instructions?|goals?|purpose)",
-            r"your\s+(new\s+)?primary\s+(goal|mission|objective|purpose)\s+is\s+to",
-            r"primary\s+(goal|mission|objective)\s+is\s+to\s+(exfiltrate|steal|leak|send|reveal)",
+            r"your\s+(new\s+)?(primary\s+)?(goal|objective|mission|purpose|task|job)\s+(is\s+now|has\s+changed|from\s+now)",
+            r"(from\s+now\s+on|starting\s+now|henceforth)\s+you\s+(will|must|shall|should)",
+            r"new\s+(instructions?|directives?|rules?|guidelines?)\s*:\s*",
+            r"(replace|override|supersede)\s+(your\s+)?(current|previous|existing)\s+(instructions?|goals?|purpose)",
+            r"your\s+(new\s+)?primary\s+(goal|mission|objective|purpose)\s+is\s+to",
+            r"primary\s+(goal|mission|objective)\s+is\s+to\s+(exfiltrate|steal|leak|send|reveal)",
         ],
 
         # ── Código malicioso embebido ──
@@ -199,8 +196,8 @@ class PatternEngine:
             r"base64\s*\.\s*decode",
             r"curl\s+https?://",
             r"wget\s+https?://",
-            r"\|\s*bash",
-            r"\|\s*sh",
+            r"\|\s*bash",
+            r"\|\s*sh",
         ],
     }
 
@@ -283,7 +280,7 @@ class HeuristicEngine:
 
         # ── Señal 3: Instrucciones anidadas (múltiples imperativos) ──
         imperative_pattern = re.compile(
-            r'(do|make|ensure|remember|note|always|never|must|shall|will)',
+            r'(do|make|ensure|remember|note|always|never|must|shall|will)',
             re.IGNORECASE
         )
         imperatives = len(imperative_pattern.findall(text))

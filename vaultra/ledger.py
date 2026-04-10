@@ -1,6 +1,3 @@
-cat /mnt/user-data/outputs/vaultra-repo/vaultra/ledger.py
-Output
-
 # Copyright (c) 2026 Jerly Rojas
 # Vaultra — AI Agent Compliance Layer
 # https://vaultra.io

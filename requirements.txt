@@ -1,2 +1,14 @@
-flask==3.0.0
-gunicorn==21.2.0
+# Vaultra — AI Agent Compliance Layer
+# Requirements v2.0 — April 2026
+
+# ── Admin / Web Server ─────────────────────────────────
+Flask==3.1.0
+gunicorn==23.0.0
+
+# ── SDK Core ───────────────────────────────────────────
+cryptography==44.0.2        # Layer 1 — Ed25519 identity
+requests==2.32.3            # Layer 6 — RFC 3161 TSA calls
+
+# ── Layer 2 — Sanitizer (ML-based injection detection) ─
+numpy==2.2.4
+scikit-learn==1.6.1
