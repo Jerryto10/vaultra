@@ -35,7 +35,7 @@ TSA_SERVERS = {
     "comodo":   "http://timestamp.comodoca.com",   # Production backup
 }
 
-DEFAULT_TSA = "freetsa"
+DEFAULT_TSA = "digicert"
 
 
 # ── Result dataclass ──────────────────────────────────────────────────
