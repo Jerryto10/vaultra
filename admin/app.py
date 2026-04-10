@@ -516,7 +516,7 @@ def report_clients():
 
 @app.route("/health")
 def health():
-    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0"})
+    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"DigiCert (https://timestamp.digicert.com)","tsa_status":"active"})
 
 if __name__ == "__main__":
     init_db()
