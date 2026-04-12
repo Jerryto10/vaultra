@@ -148,6 +148,18 @@ Vaultra operators manage clients and receipts at **admin.vaultra.io**:
 
 ---
 
+
+## API Limits
+
+| Plan | Decisions/month | Rate limit | Price |
+|---|---|---|---|
+| Starter | 100,000 | 50 req/min | $299/mo |
+| Growth | 1,000,000 | 500 req/min | $799/mo |
+| Enterprise | Unlimited | Custom SLA | Custom |
+
+30-day free trial — no credit card required.
+Contact: hello@vaultra.io | vaultra.io
+
 ## License
 
 Vaultra is open source under [AGPL-3.0](LICENSE).
