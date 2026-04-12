@@ -4,6 +4,7 @@
 # ── Admin / Web Server ─────────────────────────────────
 Flask==3.1.0
 gunicorn==23.0.0
+bcrypt==4.2.1               # Secure password hashing for admin panel
 
 # ── SDK Core ───────────────────────────────────────────
 cryptography==44.0.2        # Layer 1 — Ed25519 identity

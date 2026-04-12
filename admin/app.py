@@ -21,6 +21,13 @@ import secrets
 import sqlite3
 import time
 import uuid
+import threading
+import calendar
+try:
+    import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    BCRYPT_AVAILABLE = False
 from datetime import datetime
 from functools import wraps
 
@@ -126,33 +133,44 @@ def init_db():
     """)
     db.commit()
 
-    # Add missing columns if upgrading from v1
-    try:
-        db.execute("ALTER TABLE clients ADD COLUMN industry TEXT DEFAULT 'fintech'")
-        db.execute("ALTER TABLE clients ADD COLUMN country TEXT DEFAULT 'DE'")
-        db.execute("ALTER TABLE clients ADD COLUMN notes TEXT DEFAULT ''")
-        db.execute("ALTER TABLE clients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
-        db.execute("ALTER TABLE clients ADD COLUMN archived_at REAL")
-        db.commit()
-    except:
-        pass
+    # Add missing columns if upgrading from v1/v2
+    for col_sql in [
+        "ALTER TABLE clients ADD COLUMN industry TEXT DEFAULT 'fintech'",
+        "ALTER TABLE clients ADD COLUMN country TEXT DEFAULT 'DE'",
+        "ALTER TABLE clients ADD COLUMN notes TEXT DEFAULT ''",
+        "ALTER TABLE clients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE clients ADD COLUMN archived_at REAL",
+        "ALTER TABLE clients ADD COLUMN month_start REAL NOT NULL DEFAULT 0",
+        "ALTER TABLE clients ADD COLUMN month_count INTEGER NOT NULL DEFAULT 0",
+    ]:
+        try:
+            db.execute(col_sql)
+        except Exception:
+            pass
+    db.commit()
 
     # Create default users
     admin_pwd = os.environ.get("ADMIN_PASSWORD", "ADMIN_PASSWORD_REDACTED")
-    admin_hash = hashlib.sha256(admin_pwd.encode()).hexdigest()
+    if BCRYPT_AVAILABLE:
+        admin_hash = bcrypt.hashpw(admin_pwd.encode(), bcrypt.gensalt()).decode()
+    else:
+        admin_hash = hashlib.sha256(admin_pwd.encode()).hexdigest()
     try:
         db.execute("""
             INSERT INTO admin_users (id, username, password_hash, role, created_at)
             VALUES (?, 'admin', ?, 'admin', ?)
         """, (str(uuid.uuid4()), admin_hash, time.time()))
         support_pwd = os.environ.get("SUPPORT_PASSWORD", "support2026!")
-        support_hash = hashlib.sha256(support_pwd.encode()).hexdigest()
+        if BCRYPT_AVAILABLE:
+            support_hash = bcrypt.hashpw(support_pwd.encode(), bcrypt.gensalt()).decode()
+        else:
+            support_hash = hashlib.sha256(support_pwd.encode()).hexdigest()
         db.execute("""
             INSERT INTO admin_users (id, username, password_hash, role, created_at)
             VALUES (?, 'support', ?, 'support', ?)
         """, (str(uuid.uuid4()), support_hash, time.time()))
         db.commit()
-    except:
+    except Exception:
         pass
 
     seed_demo_data(db)
@@ -267,12 +285,19 @@ def login():
     if request.method == "POST":
         username = request.form.get("username","").strip()
         password = request.form.get("password","")
-        pwd_hash = hashlib.sha256(password.encode()).hexdigest()
         db = get_db()
         user = db.execute(
-            "SELECT * FROM admin_users WHERE username=? AND password_hash=?",
-            (username, pwd_hash)
+            "SELECT * FROM admin_users WHERE username=?",
+            (username,)
         ).fetchone()
+        # Verify password — bcrypt if available, SHA-256 fallback
+        if user:
+            if BCRYPT_AVAILABLE and user["password_hash"].startswith("$2"):
+                password_ok = bcrypt.checkpw(password.encode(), user["password_hash"].encode())
+            else:
+                password_ok = user["password_hash"] == hashlib.sha256(password.encode()).hexdigest()
+            if not password_ok:
+                user = None
         if user:
             session["admin_id"] = user["id"]
             session["username"] = user["username"]
@@ -533,7 +558,7 @@ def validate_key_endpoint():
     Returns client info if valid, error if not.
     
     Request: {"api_key": "vaultra_sk_v1_..."}
-    Response: {"valid": true, "client_id": "...", "plan": "starter", "monthly_limit": 10000}
+    Response: {"valid": true, "client_id": "...", "plan": "starter", "monthly_limit": 100000}
     """
     data = request.json
     if not data or "api_key" not in data:
@@ -568,10 +593,11 @@ def validate_key_endpoint():
         "plan": client["plan"],
         "monthly_limit": client["monthly_limit"],
         "receipt_count": client["receipt_count"],
+        "month_count": client["month_count"] if "month_count" in client.keys() else 0,
+        "month_start": client["month_start"] if "month_start" in client.keys() else 0,
     })
 
 # ── Rate limit buckets (in-memory per client) ─────────────────────────
-import threading
 _rate_buckets = {}
 _rate_lock = threading.Lock()
 
