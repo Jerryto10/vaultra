@@ -82,12 +82,14 @@ def init_db():
             created_at     REAL NOT NULL,
             last_seen      REAL,
             receipt_count  INTEGER NOT NULL DEFAULT 0,
-            monthly_limit  INTEGER NOT NULL DEFAULT 10000,
+            monthly_limit  INTEGER NOT NULL DEFAULT 100000,
             industry       TEXT DEFAULT 'fintech',
             country        TEXT DEFAULT 'DE',
             notes          TEXT DEFAULT '',
             archived       INTEGER NOT NULL DEFAULT 0,
-            archived_at    REAL
+            archived_at    REAL,
+            month_start    REAL NOT NULL DEFAULT 0,
+            month_count    INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS receipts (
@@ -172,7 +174,7 @@ def seed_demo_data(db):
         key = f"vaultra_sk_v1_{secrets.token_hex(32)}"
         key_hash = hashlib.sha256(key.encode()).hexdigest()
         key_prefix = key[:20]
-        limit = 10000 if plan == "starter" else 50000
+        limit = 100000 if plan == "starter" else 1000000
         db.execute("""
             INSERT INTO clients
             (id,company_name,email,plan,status,api_key_hash,api_key_prefix,
@@ -366,7 +368,7 @@ def create_client():
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
     key_prefix = raw_key[:20]
     cid = str(uuid.uuid4())
-    limit = {"starter":10000,"growth":50000,"enterprise":999999}.get(plan,10000)
+    limit = {"starter":100000,"growth":1000000,"enterprise":999999999}.get(plan,10000)
     db = get_db()
     try:
         db.execute("""
@@ -568,22 +570,43 @@ def validate_key_endpoint():
         "receipt_count": client["receipt_count"],
     })
 
+# ── Rate limit buckets (in-memory per client) ─────────────────────────
+import threading
+_rate_buckets = {}
+_rate_lock = threading.Lock()
+
+RATE_LIMITS = {
+    "starter":    50,   # requests per minute
+    "growth":     500,
+    "enterprise": 10000,
+}
+
+def check_rate_limit(client_id: str, plan: str) -> bool:
+    """Token bucket rate limiter. Returns True if request is allowed."""
+    limit = RATE_LIMITS.get(plan, 50)
+    now = time.time()
+    with _rate_lock:
+        bucket = _rate_buckets.get(client_id, {"tokens": limit, "last": now})
+        elapsed = now - bucket["last"]
+        bucket["tokens"] = min(limit, bucket["tokens"] + elapsed * (limit / 60.0))
+        bucket["last"] = now
+        if bucket["tokens"] >= 1:
+            bucket["tokens"] -= 1
+            _rate_buckets[client_id] = bucket
+            return True
+        _rate_buckets[client_id] = bucket
+        return False
+
 @app.route("/api/receipt", methods=["POST"])
 def receive_receipt():
     """
     Called by the Vaultra SDK to register a Compliance Receipt.
-    Validates API key then stores receipt metadata.
-    
-    Request: {
-        "api_key": "vaultra_sk_v1_...",
-        "agent_id": "credit-bot-v1",
-        "decision": "APPROVE loan #123",
-        "decision_type": "LOAN_APPROVED",
-        "input_hash": "sha256...",
-        "block_number": 1234,
-        "rfc3161_ts": "2026-04-05T...",
-        "regulation": "EU AI Act"
-    }
+    Validates API key, enforces rate limiting and monthly quota, then stores receipt.
+
+    Plan limits:
+        starter:    100,000 decisions/month — 50 req/min
+        growth:   1,000,000 decisions/month — 500 req/min
+        enterprise: unlimited              — 10,000 req/min
     """
     data = request.json
     if not data or "api_key" not in data:
@@ -592,18 +615,51 @@ def receive_receipt():
     key_hash = hashlib.sha256(data["api_key"].encode()).hexdigest()
     db = get_db()
     client = db.execute(
-        "SELECT id, status, monthly_limit, receipt_count FROM clients WHERE api_key_hash=? AND archived=0",
+        """SELECT id, status, plan, monthly_limit, receipt_count,
+                  month_start, month_count
+           FROM clients WHERE api_key_hash=? AND archived=0""",
         (key_hash,)
     ).fetchone()
 
     if not client or client["status"] != "active":
         return jsonify({"success": False, "error": "Invalid or inactive API key"}), 401
 
-    # Check monthly limit
-    if client["receipt_count"] >= client["monthly_limit"]:
-        return jsonify({"success": False, "error": "Monthly receipt limit reached"}), 429
+    # ── Rate limiting ───────────────────────────────────────────────────
+    if not check_rate_limit(client["id"], client["plan"]):
+        limit = RATE_LIMITS.get(client["plan"], 50)
+        return jsonify({
+            "success": False,
+            "error": "Rate limit exceeded",
+            "limit": f"{limit} requests/minute",
+            "retry_after_seconds": 5
+        }), 429
 
-    # Store receipt
+    # ── Monthly quota reset ─────────────────────────────────────────────
+    now = time.time()
+    from datetime import datetime, timezone
+    now_dt = datetime.now(timezone.utc)
+    month_start = client["month_start"] or 0
+    month_count = client["month_count"] or 0
+
+    if month_start > 0:
+        start_dt = datetime.fromtimestamp(month_start, tz=timezone.utc)
+        if now_dt.year != start_dt.year or now_dt.month != start_dt.month:
+            month_count = 0
+            month_start = now
+    else:
+        month_start = now
+
+    # ── Monthly limit check ─────────────────────────────────────────────
+    if month_count >= client["monthly_limit"]:
+        return jsonify({
+            "success": False,
+            "error": "Monthly decision limit reached",
+            "limit": client["monthly_limit"],
+            "plan": client["plan"],
+            "upgrade": "Contact hello@vaultra.io to upgrade your plan"
+        }), 429
+
+    # ── Store receipt ───────────────────────────────────────────────────
     rid = str(uuid.uuid4())
     db.execute("""
         INSERT INTO receipts
@@ -619,12 +675,23 @@ def receive_receipt():
         data.get("block_number", 0),
         data.get("rfc3161_ts", ""),
         data.get("regulation", "EU AI Act"),
-        time.time()
+        now
     ))
-    db.execute(
-        "UPDATE clients SET receipt_count=receipt_count+1, last_seen=? WHERE id=?",
-        (time.time(), client["id"])
-    )
+
+    # ── Update counters ─────────────────────────────────────────────────
+    db.execute("""
+        UPDATE clients SET
+            receipt_count = receipt_count + 1,
+            month_count   = ?,
+            month_start   = ?,
+            last_seen     = ?
+        WHERE id = ?
+    """, (month_count + 1, month_start, now, client["id"]))
     db.commit()
 
-    return jsonify({"success": True, "receipt_id": rid})
+    return jsonify({
+        "success": True,
+        "receipt_id": rid,
+        "month_count": month_count + 1,
+        "monthly_limit": client["monthly_limit"]
+    })
