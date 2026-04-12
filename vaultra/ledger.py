@@ -14,7 +14,7 @@
 AgentShield - Capa 3: Provenance Ledger
 =========================================
 Rastrea el origen y la cadena de custodia de cada instrucción
-que fluye entre agentes. Registro inmutable tipo blockchain-lite.
+que fluye entre agentes. Registro inmutable con hash-chained audit ledger.
 
 Cada entrada en el ledger contiene:
   - Quién envió la instrucción (agent_id + fingerprint)
@@ -173,13 +173,13 @@ class ProvenanceLedger:
     """
     Registro inmutable de todos los eventos del sistema.
     
-    Diseño blockchain-lite:
+    Diseño hash-chained audit ledger:
     - Cada entrada incluye el hash de la anterior
     - Cualquier modificación retroactiva rompe la cadena
     - Verificación de integridad O(n)
     
     Storage: SQLite (embebido, sin servidor)
-    Interface plug-in: reemplazable por PostgreSQL/Redis en producción
+    Interface plug-in: reemplazable por PostgreSQL en producción
     """
 
     GENESIS_HASH = "0" * 64  # Hash del bloque génesis
@@ -467,6 +467,100 @@ class ProvenanceLedger:
             block_hash        = row["block_hash"],
             metadata          = json.loads(row["metadata"]),
         )
+
+    # ── Backup & Export ──
+
+    def export_backup(self, output_path: str = None) -> dict:
+        """
+        Exports the full ledger as a signed JSON backup.
+        Usage: ledger.export_backup("/backups/vaultra_ledger_backup.json")
+        """
+        import json as _json
+        from datetime import datetime, timezone
+
+        chain_ok, broken_entry = self.verify_chain()
+
+        rows = self._conn.execute(
+            "SELECT * FROM entries ORDER BY timestamp ASC"
+        ).fetchall()
+
+        entries = [self._row_to_entry(r).to_dict() for r in rows]
+
+        export_ts = time.time()
+        export_dt = datetime.fromtimestamp(export_ts, tz=timezone.utc).isoformat()
+
+        backup_data = {
+            "vaultra_backup_version": "1.0",
+            "exported_at":            export_dt,
+            "exported_at_ts":         export_ts,
+            "entry_count":            len(entries),
+            "chain_integrity":        "valid" if chain_ok else f"BROKEN at {broken_entry}",
+            "genesis_hash":           self.GENESIS_HASH,
+            "final_block_hash":       self._last_hash,
+            "entries":                entries,
+        }
+
+        seal_data = _json.dumps(
+            {k: v for k, v in backup_data.items() if k != "seal"},
+            sort_keys=True
+        ).encode()
+        backup_data["seal"] = hashlib.sha256(seal_data).hexdigest()
+
+        if output_path:
+            import os
+            os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+            with open(output_path, "w") as f:
+                _json.dump(backup_data, f, indent=2)
+            print(f"[Ledger] 💾 Backup exported: {output_path} | {len(entries)} entries | integrity: {backup_data['chain_integrity']}")
+
+        return {
+            "success":         True,
+            "exported_at":     export_dt,
+            "entry_count":     len(entries),
+            "chain_integrity": backup_data["chain_integrity"],
+            "final_hash":      self._last_hash[:16] + "...",
+            "seal":            backup_data["seal"][:16] + "...",
+            "output_path":     output_path,
+        }
+
+    def verify_backup(self, backup_path: str) -> dict:
+        """
+        Verifies a previously exported backup file.
+        Checks seal integrity and hash chain.
+        """
+        import json as _json
+
+        with open(backup_path, "r") as f:
+            backup_data = _json.load(f)
+
+        stored_seal = backup_data.pop("seal", "")
+        seal_data = _json.dumps(backup_data, sort_keys=True).encode()
+        computed_seal = hashlib.sha256(seal_data).hexdigest()
+        backup_data["seal"] = stored_seal
+
+        seal_ok = computed_seal == stored_seal
+
+        prev_hash = self.GENESIS_HASH
+        chain_ok = True
+        broken_entry = None
+
+        for entry_dict in backup_data.get("entries", []):
+            if entry_dict.get("prev_hash") != prev_hash:
+                chain_ok = False
+                broken_entry = entry_dict.get("entry_id")
+                break
+            prev_hash = entry_dict.get("block_hash", "")
+
+        status = "valid" if (seal_ok and chain_ok) else "INVALID"
+        print(f"[Ledger] 🔍 Backup verification: {status} | seal: {'OK' if seal_ok else 'BROKEN'} | chain: {'OK' if chain_ok else f'BROKEN at {broken_entry}'}")
+
+        return {
+            "status":      status,
+            "seal_ok":     seal_ok,
+            "chain_ok":    chain_ok,
+            "entry_count": len(backup_data.get("entries", [])),
+            "broken_at":   broken_entry,
+        }
 
     def _assess_risk(
         self,
