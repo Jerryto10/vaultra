@@ -75,7 +75,7 @@
                 <span class="badge br">{{ r.status|upper }}</span>
               {% endif %}
             </td>
-            <td class="mono">{{ (r.created_at)|int }}</td>
+            <td class="mono">{{ fmt_date(r.created_at) }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -127,8 +127,8 @@
     <div class="field">
       <label>PLAN</label>
       <select id="f-plan">
-        <option value="starter">Starter — $299/mo — 10,000 decisions</option>
-        <option value="growth">Growth — $799/mo — 50,000 decisions</option>
+        <option value="starter">Starter — $299/mo — 100,000 decisions/mo</option>
+        <option value="growth">Growth — $799/mo — 1,000,000 decisions/mo</option>
         <option value="enterprise">Enterprise — Custom</option>
       </select>
     </div>

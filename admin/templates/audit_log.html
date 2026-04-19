@@ -25,7 +25,7 @@
       <tr>
         <td class="mono">{{ fmt_date(log.created_at) }}</td>
         <td style="font-weight:600;color:var(--gold)">{{ log.username }}</td>
-        <td><span class="badge bm">{{ log.admin_id[:6] }}...</span></td>
+        <td><span class="badge bm">{{ log.role|upper }}</span></td>
         <td>
           {% if log.action in ['LOGIN','LOGOUT'] %}
             <span class="badge bb">{{ log.action }}</span>

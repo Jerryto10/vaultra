@@ -69,7 +69,7 @@
             <span class="badge br">{{ r.status|upper }}</span>
           {% endif %}
         </td>
-        <td class="mono" style="font-size:0.58rem;color:var(--muted)">{{ r.created_at|int }}</td>
+        <td class="mono" style="font-size:0.58rem;color:var(--muted)">{{ fmt_date(r.created_at) }}</td>
       </tr>
       {% endfor %}
     </tbody>
