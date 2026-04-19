@@ -44,6 +44,9 @@ from .human_gate import HumanGate, ApprovalRequest, ActionRisk, ApprovalStatus
 # Layer 6 — RFC 3161 timestamping (DigiCert)
 from .timestamper import stamp, verify_hash, TimestampResult
 
+# Backup scheduler (R-15)
+from .backup_scheduler import start_backup_scheduler
+
 # Layer 7 — API key management
 from .api_keys import APIKeyManager, ClientRecord
 
@@ -82,4 +85,6 @@ __all__ = [
     # Layer 7
     "APIKeyManager",
     "ClientRecord",
+    # Backup
+    "start_backup_scheduler",
 ]
