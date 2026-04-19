@@ -23,6 +23,7 @@ Usage:
 """
 
 import os
+import re
 import hashlib
 import json
 import time
@@ -100,6 +101,9 @@ class VaultraPipeline:
         regulation: str = "EU AI Act",
         offline_mode: bool = False,
     ):
+        # Validate agent_id format (R-16)
+        self._validate_agent_id(agent_id)
+
         self.agent_id   = agent_id
         self.api_key    = api_key
         self.scope      = scope
@@ -112,6 +116,64 @@ class VaultraPipeline:
         # Validate API key on initialization
         self._validate_api_key()
         print(f"[Vaultra] Pipeline initialized | Agent: {agent_id} | Scope: {scope}")
+
+    def _validate_agent_id(self, agent_id: str):
+        """
+        Validate agent_id format — R-16 compliance requirement.
+
+        Rules:
+        - Must be a non-empty string
+        - 3-64 characters long
+        - Only letters, numbers, hyphens, underscores, dots
+        - Must start with a letter or number
+        - Cannot contain spaces or special characters
+
+        A valid agent_id ensures the audit trail is legally
+        identifiable and auditor-readable under EU AI Act Art. 12.
+
+        Examples:
+            Valid:   "credit-bot-v1", "kyc_agent_2026", "fraud.detector.v2"
+            Invalid: "", "my agent", "bot??", "a" (too short)
+        """
+        if not agent_id:
+            raise ValueError(
+                "[Vaultra] agent_id cannot be empty. "
+                "Use a descriptive name like 'credit-bot-v1' or 'kyc-agent'."
+            )
+
+        if not isinstance(agent_id, str):
+            raise TypeError(
+                f"[Vaultra] agent_id must be a string, got {type(agent_id).__name__}."
+            )
+
+        if len(agent_id) < 3:
+            raise ValueError(
+                f"[Vaultra] agent_id '{agent_id}' is too short (minimum 3 characters). "
+                "Use a descriptive name like 'credit-bot-v1'."
+            )
+
+        if len(agent_id) > 64:
+            raise ValueError(
+                f"[Vaultra] agent_id is too long (maximum 64 characters). "
+                f"Current length: {len(agent_id)}."
+            )
+
+        pattern = r'^[a-zA-Z0-9][a-zA-Z0-9\-_\.]*[a-zA-Z0-9]$|^[a-zA-Z0-9]{3}$'
+        if not re.match(pattern, agent_id):
+            raise ValueError(
+                f"[Vaultra] agent_id '{agent_id}' contains invalid characters. "
+                "Only letters, numbers, hyphens (-), underscores (_), and dots (.) are allowed. "
+                "Must start and end with a letter or number. "
+                "Example: 'credit-bot-v1'"
+            )
+
+        # Reserved names check
+        reserved = {"test", "demo", "debug", "vaultra", "admin", "system", "root"}
+        if agent_id.lower() in reserved:
+            raise ValueError(
+                f"[Vaultra] agent_id '{agent_id}' is a reserved name. "
+                "Use a specific name like 'credit-bot-v1' or 'kyc-agent-prod'."
+            )
 
     def _validate_api_key(self):
         """Validate API key against Vaultra backend."""
