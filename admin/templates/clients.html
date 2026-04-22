@@ -75,6 +75,8 @@
             {% endif %}
             <button class="btn" onclick="openNotes('{{ c.id }}','{{ c.notes|default('')|replace("'","\\'")|replace('\n',' ') }}')">Notes</button>
             <a href="/receipts?client_id={{ c.id }}" class="btn">Receipts →</a>
+            <a href="/api/report/{{ c.id }}/csv" class="btn" title="Download receipts as CSV">↓ CSV</a>
+            <a href="/api/report/{{ c.id }}/pdf" class="btn" target="_blank" title="Auditor-ready compliance report">↗ PDF</a>
           </div>
         </td>
       </tr>

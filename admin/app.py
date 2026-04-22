@@ -118,6 +118,7 @@ def init_db():
             id         TEXT PRIMARY KEY,
             admin_id   TEXT NOT NULL,
             username   TEXT NOT NULL,
+            role       TEXT NOT NULL DEFAULT 'admin',
             action     TEXT NOT NULL,
             target     TEXT,
             details    TEXT,
@@ -142,6 +143,7 @@ def init_db():
         "ALTER TABLE clients ADD COLUMN archived_at REAL",
         "ALTER TABLE clients ADD COLUMN month_start REAL NOT NULL DEFAULT 0",
         "ALTER TABLE clients ADD COLUMN month_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE audit_log ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'",
     ]:
         try:
             db.execute(col_sql)
@@ -262,11 +264,11 @@ def admin_required(f):
 def log_action(action, target=None, details=None):
     db = get_db()
     db.execute("""
-        INSERT INTO audit_log (id,admin_id,username,action,target,details,ip_address,created_at)
-        VALUES (?,?,?,?,?,?,?,?)
+        INSERT INTO audit_log (id,admin_id,username,role,action,target,details,ip_address,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
     """, (str(uuid.uuid4()), session.get("admin_id","system"),
-          session.get("username","system"), action, target, details,
-          request.remote_addr, time.time()))
+          session.get("username","system"), session.get("role","admin"),
+          action, target, details, request.remote_addr, time.time()))
     db.commit()
 
 # ── Routes ─────────────────────────────────────────────────
@@ -540,6 +542,155 @@ def report_clients():
     """).fetchall()
     log_action("EXPORT_CLIENTS_REPORT")
     return jsonify([dict(c) for c in clients_data])
+
+
+@app.route("/api/report/<cid>/csv")
+@login_required
+def report_csv(cid):
+    """Export all receipts for a client as CSV."""
+    import csv, io
+    db = get_db()
+    client = db.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
+    if not client:
+        return jsonify({"error": "Client not found"}), 404
+    receipts = db.execute(
+        "SELECT * FROM receipts WHERE client_id=? ORDER BY created_at DESC", (cid,)
+    ).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Receipt ID", "Agent ID", "Decision", "Decision Type",
+        "Regulation", "Block Number", "RFC 3161 Timestamp",
+        "Input Hash", "Status", "Created At UTC"
+    ])
+    for r in receipts:
+        writer.writerow([
+            r["id"], r["agent_id"], r["decision"], r["decision_type"],
+            r["regulation"], r["block_number"], r["rfc3161_ts"] or "PENDING",
+            r["input_hash"], r["status"],
+            fmt_date(r["created_at"])
+        ])
+
+    company = client["company_name"].replace(" ", "_")
+    filename = f"vaultra_receipts_{company}_{time.strftime('%Y%m%d')}.csv"
+    log_action("EXPORT_CSV", cid, f"{client['company_name']} — {len(receipts)} receipts")
+
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.route("/api/report/<cid>/pdf")
+@login_required
+def report_pdf(cid):
+    """Export compliance receipts for a client as auditor-ready HTML (print to PDF)."""
+    db = get_db()
+    client = db.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
+    if not client:
+        return jsonify({"error": "Client not found"}), 404
+    receipts = db.execute(
+        "SELECT * FROM receipts WHERE client_id=? ORDER BY created_at DESC", (cid,)
+    ).fetchall()
+
+    approved = sum(1 for r in receipts if "APPROVED" in (r["decision_type"] or ""))
+    rejected = sum(1 for r in receipts if "REJECTED" in (r["decision_type"] or ""))
+    review   = sum(1 for r in receipts if "REVIEW" in (r["decision_type"] or ""))
+    stamped  = sum(1 for r in receipts if r["rfc3161_ts"])
+
+    log_action("EXPORT_PDF", cid, f"{client['company_name']} — {len(receipts)} receipts")
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Vaultra Compliance Report — {client['company_name']}</title>
+<style>
+  body {{ font-family: 'Courier New', monospace; font-size: 11px; color: #111; margin: 40px; }}
+  h1 {{ font-size: 20px; color: #0a0a0a; border-bottom: 2px solid #c9a84c; padding-bottom: 8px; }}
+  h2 {{ font-size: 13px; color: #444; margin-top: 24px; }}
+  .meta {{ background: #f9f7f0; border: 1px solid #e0d8c0; padding: 12px; margin: 16px 0; border-radius: 4px; }}
+  .meta p {{ margin: 4px 0; }}
+  .stats {{ display: flex; gap: 16px; margin: 16px 0; }}
+  .stat {{ background: #0a0a0a; color: #c9a84c; padding: 10px 16px; border-radius: 4px; text-align: center; }}
+  .stat .n {{ font-size: 22px; font-weight: bold; }}
+  .stat .l {{ font-size: 9px; color: #888; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 9.5px; }}
+  th {{ background: #0a0a0a; color: #c9a84c; padding: 6px 8px; text-align: left; }}
+  tr:nth-child(even) {{ background: #f9f7f0; }}
+  td {{ padding: 5px 8px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }}
+  .badge {{ display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 8px; font-weight: bold; }}
+  .approved {{ background: #d4edda; color: #155724; }}
+  .rejected {{ background: #f8d7da; color: #721c24; }}
+  .review {{ background: #fff3cd; color: #856404; }}
+  .stamped {{ background: #d4edda; color: #155724; }}
+  .pending {{ background: #fff3cd; color: #856404; }}
+  .footer {{ margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9px; color: #888; }}
+  @media print {{ body {{ margin: 20px; }} }}
+</style>
+</head>
+<body>
+<h1>Vaultra — Compliance Receipt Report</h1>
+<div class="meta">
+  <p><strong>Client:</strong> {client['company_name']}</p>
+  <p><strong>Plan:</strong> {client['plan'].upper()} | <strong>Industry:</strong> {client.get('industry','—')} | <strong>Country:</strong> {client.get('country','—')}</p>
+  <p><strong>Generated:</strong> {fmt_date(time.time())} UTC | <strong>Regulation:</strong> EU AI Act Art. 12 + GDPR Art. 22</p>
+  <p><strong>Total Receipts:</strong> {len(receipts)} | <strong>RFC 3161 Stamped:</strong> {stamped}/{len(receipts)}</p>
+</div>
+<div class="stats">
+  <div class="stat"><div class="n">{len(receipts)}</div><div class="l">TOTAL</div></div>
+  <div class="stat"><div class="n">{approved}</div><div class="l">APPROVED</div></div>
+  <div class="stat"><div class="n">{rejected}</div><div class="l">REJECTED</div></div>
+  <div class="stat"><div class="n">{review}</div><div class="l">REVIEW</div></div>
+  <div class="stat"><div class="n">{stamped}</div><div class="l">STAMPED</div></div>
+</div>
+<h2>Compliance Receipts</h2>
+<table>
+<tr>
+  <th>Receipt ID</th><th>Agent</th><th>Decision Type</th>
+  <th>Regulation</th><th>Block #</th><th>RFC 3161</th><th>Status</th><th>Date UTC</th>
+</tr>"""
+
+    for r in receipts:
+        dt = r["decision_type"] or ""
+        if "APPROVED" in dt:
+            badge_cls = "approved"
+        elif "REJECTED" in dt:
+            badge_cls = "rejected"
+        else:
+            badge_cls = "review"
+
+        rfc = r["rfc3161_ts"]
+        rfc_html = f'<span class="badge stamped">✓ STAMPED</span>' if rfc else '<span class="badge pending">PENDING</span>'
+
+        html += f"""<tr>
+  <td style="font-family:monospace;color:#c9a84c">{r['id'][:8]}</td>
+  <td>{r['agent_id']}</td>
+  <td><span class="badge {badge_cls}">{dt}</span></td>
+  <td style="font-size:8px">{r['regulation'] or '—'}</td>
+  <td>#{r['block_number']}</td>
+  <td>{rfc_html}</td>
+  <td><span class="badge stamped">{r['status'].upper()}</span></td>
+  <td style="white-space:nowrap">{fmt_date(r['created_at'])}</td>
+</tr>"""
+
+    html += f"""
+</table>
+<div class="footer">
+  <p>This report was generated by Vaultra AI Agent Compliance Layer — vaultra.io</p>
+  <p>All receipts are cryptographically signed (Ed25519) and RFC 3161 timestamped under eIDAS Art. 41.</p>
+  <p>Report generated: {fmt_date(time.time())} | Vaultra Admin Panel v2.0 | Confidential</p>
+</div>
+</body></html>"""
+
+    from flask import Response
+    company = client["company_name"].replace(" ", "_")
+    filename = f"vaultra_report_{company}_{time.strftime('%Y%m%d')}.html"
+    return Response(html, mimetype="text/html",
+        headers={"Content-Disposition": f"inline; filename={filename}"})
 
 @app.route("/health")
 def health():
