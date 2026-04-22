@@ -50,7 +50,11 @@
         <td class="mono" style="font-size:0.66rem">{{ c.industry or '—' }}</td>
         <td class="mono" style="font-size:0.66rem">{{ c.country or '—' }}</td>
         <td class="mono" style="font-size:0.62rem;color:var(--muted)">{{ c.api_key_prefix }}...</td>
-        <td class="mono">{{ c.receipt_count }} / {{ c.monthly_limit }}</td>
+        <td class="mono">{{ c.month_count or 0 }} / {{ c.monthly_limit }}
+              {% set pct = ((c.month_count or 0) / c.monthly_limit * 100)|round|int %}
+              <div style="margin-top:4px;height:3px;background:var(--border);border-radius:2px;width:100px">
+                <div style="height:3px;border-radius:2px;width:{{ [pct,100]|min }}%;background:{% if pct > 80 %}#e05252{% elif pct > 50 %}var(--gold){% else %}#4caf7d{% endif %}"></div>
+              </div></td>
         <td><span class="badge {% if c.status == 'active' %}bg{% elif c.status == 'archived' %}bm{% else %}br{% endif %}">{{ c.status|upper }}</span></td>
         <td class="mono" style="font-size:0.6rem;color:var(--muted)">{{ fmt_date(c.created_at) }}</td>
         <td class="mono" style="font-size:0.6rem;color:var(--muted)">{{ fmt_date(c.last_seen) }}</td>
@@ -89,8 +93,8 @@
       <div class="field"><label>EMAIL</label><input type="email" id="f-email" placeholder="cto@company.com" /></div>
       <div class="field"><label>PLAN</label>
         <select id="f-plan">
-          <option value="starter">Starter — $299/mo</option>
-          <option value="growth">Growth — $799/mo</option>
+          <option value="starter">Starter — $299/mo — 100,000 decisions/mo</option>
+          <option value="growth">Growth — $799/mo — 1,000,000 decisions/mo</option>
           <option value="enterprise">Enterprise — Custom</option>
         </select>
       </div>

@@ -37,7 +37,10 @@
     <tbody>
       {% for r in receipts %}
       <tr>
-        <td><span class="mono" style="color:var(--gold)">{{ r.id[:8] }}</span></td>
+        <td class="mono" style="color:var(--gold);cursor:pointer"
+          title="Agent: {{ r.agent_id }}&#10;Decision: {{ r.decision[:80] }}&#10;Regulation: {{ r.regulation }}&#10;Block: #{{ r.block_number }}&#10;RFC 3161: {{ r.rfc3161_ts or 'Pending' }}&#10;Hash: {{ r.input_hash[:32] }}...">
+          {{ r.id[:8] }} <span style="font-size:0.6rem;color:var(--muted)">ⓘ</span>
+        </td>
         <td class="gold">{{ r.company_name }}</td>
         <td class="mono">{{ r.agent_id }}</td>
         <td>
@@ -55,9 +58,9 @@
         <td class="mono">#{{ r.block_number }}</td>
         <td>
           {% if r.rfc3161_ts %}
-            <span class="badge bg">✓ STAMPED</span>
+            <span class="badge bg" title="{{ r.rfc3161_ts }}">✓ STAMPED</span>
           {% else %}
-            <span class="badge bo">PENDING</span>
+            <span class="badge bo" title="DigiCert TSA pending">⏳ PENDING</span>
           {% endif %}
         </td>
         <td>
@@ -69,7 +72,7 @@
             <span class="badge br">{{ r.status|upper }}</span>
           {% endif %}
         </td>
-        <td class="mono" style="font-size:0.58rem;color:var(--muted)">{{ fmt_date(r.created_at) }}</td>
+        <td class="mono" style="font-size:0.7rem;color:var(--muted);white-space:nowrap">{{ fmt_date(r.created_at) }}</td>
       </tr>
       {% endfor %}
     </tbody>
