@@ -655,7 +655,11 @@ def report_pdf(cid):
 </tr>"""
 
     for r in receipts:
-        dt = r["decision_type"] or ""
+        dt = (r["decision_type"] or "UNKNOWN").upper()
+        reg = (r["regulation"] or "—")
+        agent = (r["agent_id"] or "—")
+        status = (r["status"] or "valid").upper()
+        rid = (r["id"] or "")[:8]
         if "APPROVED" in dt:
             badge_cls = "approved"
         elif "REJECTED" in dt:
@@ -664,18 +668,20 @@ def report_pdf(cid):
             badge_cls = "review"
 
         rfc = r["rfc3161_ts"]
-        rfc_html = f'<span class="badge stamped">✓ STAMPED</span>' if rfc else '<span class="badge pending">PENDING</span>'
+        rfc_html = '<span class="badge stamped">&#10003; STAMPED</span>' if rfc else '<span class="badge pending">PENDING</span>'
 
-        html += f"""<tr>
-  <td style="font-family:monospace;color:#c9a84c">{r['id'][:8]}</td>
-  <td>{r['agent_id']}</td>
-  <td><span class="badge {badge_cls}">{dt}</span></td>
-  <td style="font-size:8px">{r['regulation'] or '—'}</td>
-  <td>#{r['block_number']}</td>
-  <td>{rfc_html}</td>
-  <td><span class="badge stamped">{r['status'].upper()}</span></td>
-  <td style="white-space:nowrap">{fmt_date(r['created_at'])}</td>
-</tr>"""
+        html += (
+            "<tr>"
+            f'<td style="font-family:monospace;color:#c9a84c">{rid}</td>'
+            f"<td>{agent}</td>"
+            f'<td><span class="badge {badge_cls}">{dt}</span></td>'
+            f'<td style="font-size:8px">{reg}</td>'
+            f"<td>#{r['block_number']}</td>"
+            f"<td>{rfc_html}</td>"
+            f'<td><span class="badge stamped">{status}</span></td>'
+            f'<td style="white-space:nowrap">{fmt_date(r["created_at"])}</td>'
+            "</tr>"
+        )
 
     html += f"""
 </table>
