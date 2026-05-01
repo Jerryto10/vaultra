@@ -182,7 +182,7 @@
 </head>
 <body>
 
-  <a href="/" style="text-decoration:none;">
+  <a href="/" style="text-decoration:none;color:inherit;">
     <div class="logo">Vault<span>ra</span></div>
   </a>
   <div class="subtitle">Compliance Receipt Verifier</div>
@@ -209,10 +209,10 @@
   </div>
 
 <script>
-  // Read receipt ID from URL path: /verify/<id>
-  const pathParts = window.location.pathname.split('/');
-  const urlReceiptId = pathParts[pathParts.length - 1];
-  if (urlReceiptId && urlReceiptId !== 'verify' && urlReceiptId.length > 8) {
+  // Read receipt ID from URL: ?id=<receipt_id>
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlReceiptId = urlParams.get('id');
+  if (urlReceiptId && urlReceiptId.length > 8) {
     document.getElementById('receipt-input').value = urlReceiptId;
     window.addEventListener('DOMContentLoaded', () => verify());
   }

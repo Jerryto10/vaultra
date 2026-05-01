@@ -832,8 +832,13 @@ def health_check_page():
         last_receipt_ago=last_receipt_ago or "—")
 
 
-@app.route("/api/verify/<rid>", methods=["GET"])
+@app.route("/api/verify/<rid>", methods=["GET", "OPTIONS"])
 def verify_receipt(rid):
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        response.headers["Access-Control-Allow-Origin"] = "https://vaultra.io"
+        response.headers["Access-Control-Allow-Methods"] = "GET"
+        return response
     """Public receipt verification endpoint — no login required.
     Returns only public compliance data, no PII or client details.
     """
@@ -847,14 +852,16 @@ def verify_receipt(rid):
     ).fetchone()
 
     if not receipt:
-        return jsonify({
+        resp = jsonify({
             "valid": False,
             "error": "Receipt not found",
             "receipt_id": rid
-        }), 404
+        })
+        resp.headers["Access-Control-Allow-Origin"] = "https://vaultra.io"
+        return resp, 404
 
     import json as _json
-    return jsonify({
+    response = jsonify({
         "valid": True,
         "receipt_id":    receipt["id"],
         "agent_id":      receipt["agent_id"],
@@ -868,8 +875,10 @@ def verify_receipt(rid):
         "status":        receipt["status"],
         "created_at":    fmt_date(receipt["created_at"]),
         "verified_by":   "Vaultra AI Agent Compliance Layer",
-        "verify_url":    "https://vaultra.io/verify/" + receipt["id"],
+        "verify_url":    "https://vaultra.io/verify?id=" + receipt["id"],
     })
+    response.headers["Access-Control-Allow-Origin"] = "https://vaultra.io"
+    return response
 
 @app.route("/health")
 def health():
@@ -916,7 +925,7 @@ def validate_key_endpoint():
     db.execute("UPDATE clients SET last_seen=? WHERE id=?", (time.time(), client["id"]))
     db.commit()
 
-    return jsonify({
+    response = jsonify({
         "valid": True,
         "client_id": client["id"],
         "company_name": client["company_name"],
