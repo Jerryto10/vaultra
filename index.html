@@ -838,37 +838,37 @@
 
   <script>
   async function lpVerify() {
-    const rid = document.getElementById('lp-verify-input').value.trim();
+    var rid = document.getElementById('lp-verify-input').value.trim();
     if (!rid) return;
-    const btn = document.getElementById('lp-verify-btn');
-    const resultEl = document.getElementById('lp-verify-result');
+    var btn = document.getElementById('lp-verify-btn');
+    var resultEl = document.getElementById('lp-verify-result');
     btn.textContent = '...';
     btn.disabled = true;
     resultEl.style.display = 'none';
     try {
-      const res = await fetch('https://admin.vaultra.io/api/verify/' + encodeURIComponent(rid));
-      const d = await res.json();
+      var res = await fetch('https://admin.vaultra.io/api/verify/' + encodeURIComponent(rid));
+      var d = await res.json();
       if (d.valid) {
-        const rfc = d.rfc3161_valid
-          ? '<span style="color:#4caf7d;font-weight:600;">✓ STAMPED — ' + (d.rfc3161_ts || '') + '</span>'
-          : '<span style="color:#c9a84c;">⏳ Pending DigiCert TSA</span>';
+        var rfc = d.rfc3161_valid
+          ? '<span style="color:#4caf7d;font-weight:600;">STAMPED — ' + (d.rfc3161_ts || '') + '</span>'
+          : '<span style="color:#c9a84c;">Pending DigiCert TSA</span>';
         resultEl.innerHTML =
           '<div style="background:rgba(76,175,125,0.08);border:1px solid rgba(76,175,125,0.25);border-radius:8px;padding:14px 16px;">' +
-          '<div style="color:#4caf7d;font-weight:600;margin-bottom:10px;">✓ Receipt Valid — Cryptographically Verified</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-family:'DM Mono',monospace;font-size:0.68rem;">' +
-          '<div><span style="color:#6b6b6b;">Decision:</span> <span style="color:#f5f3ee;">' + (d.decision_type||'—') + '</span></div>' +
-          '<div><span style="color:#6b6b6b;">Regulation:</span> <span style="color:#f5f3ee;">' + (d.regulation||'—') + '</span></div>' +
-          '<div><span style="color:#6b6b6b;">Block:</span> <span style="color:#f5f3ee;">#' + d.block_number + '</span></div>' +
-          '<div><span style="color:#6b6b6b;">Created:</span> <span style="color:#f5f3ee;">' + d.created_at + '</span></div>' +
-          '<div style="grid-column:1/-1"><span style="color:#6b6b6b;">RFC 3161:</span> ' + rfc + '</div>' +
+          '<div style="color:#4caf7d;font-weight:600;margin-bottom:10px;">Receipt Valid</div>' +
+          '<div style="font-size:0.75rem;color:#f5f3ee;line-height:1.8;">' +
+          'Decision: ' + (d.decision_type||'') + '<br>' +
+          'Regulation: ' + (d.regulation||'') + '<br>' +
+          'Block: #' + d.block_number + '<br>' +
+          'RFC 3161: ' + rfc + '<br>' +
+          'Created: ' + d.created_at +
           '</div>' +
-          '<div style="margin-top:10px;"><a href="/verify?id=' + rid + '" style="color:#c9a84c;font-size:0.7rem;font-family:'DM Mono',monospace;">View full verification →</a></div>' +
+          '<div style="margin-top:10px;"><a href="/verify?id=' + rid + '" style="color:#c9a84c;font-size:0.75rem;">View full verification</a></div>' +
           '</div>';
       } else {
-        resultEl.innerHTML = '<div style="color:#e05252;font-family:'DM Mono',monospace;font-size:0.75rem;">Receipt not found — try a different ID</div>';
+        resultEl.innerHTML = '<div style="color:#e05252;font-size:0.75rem;">Receipt not found</div>';
       }
     } catch(e) {
-      resultEl.innerHTML = '<div style="color:#e05252;font-family:'DM Mono',monospace;font-size:0.75rem;">Connection error — please try again</div>';
+      resultEl.innerHTML = '<div style="color:#e05252;font-size:0.75rem;">Connection error — please try again</div>';
     }
     resultEl.style.display = 'block';
     btn.textContent = 'Verify →';
