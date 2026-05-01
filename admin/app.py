@@ -37,11 +37,12 @@ from flask import (
 )
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 SESSION_TIMEOUT = 1800  # 30 minutes
 
 # ── Session security ─────────────────────────────────────
-app.config["SESSION_COOKIE_SECURE"]   = True   # HTTPS only
+app.config["SESSION_COOKIE_SECURE"]   = os.environ.get("RAILWAY_ENVIRONMENT") is not None  # True only on Railway
 app.config["SESSION_COOKIE_HTTPONLY"] = True   # No JS access
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # CSRF protection
 app.config["PERMANENT_SESSION_LIFETIME"] = 0   # Expire on browser close
