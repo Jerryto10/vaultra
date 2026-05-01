@@ -716,6 +716,54 @@
   </section>
 
   <!-- CTA / CONTACT -->
+
+  <!-- VERIFIER SECTION -->
+  <section class="section reveal" id="verify">
+    <p class="section-label">Public Verifier</p>
+    <h2>Any auditor can verify.<br><em>Without accessing your systems.</em></h2>
+    <p style="color:var(--muted);max-width:560px;margin:0 auto 2.5rem;text-align:center;line-height:1.7;">
+      Every Compliance Receipt gets a public URL. Share it with a regulator, an auditor, or a counterparty.
+      They verify the cryptographic proof independently — no login, no access to your infrastructure.
+    </p>
+
+    <div style="max-width:680px;margin:0 auto;">
+      <!-- Live verifier embed -->
+      <div style="background:#0f0f10;border:1px solid #1e1e1e;border-radius:14px;padding:28px 32px;margin-bottom:20px;">
+        <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#6b6b6b;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px;">Try it — verify a real receipt</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;">
+          <input type="text" id="lp-verify-input"
+            value="1198f044-134a-4299-8b72-c4620f398fd5"
+            style="flex:1;background:#151515;border:1px solid #1e1e1e;border-radius:8px;padding:11px 14px;color:#f5f3ee;font-family:'DM Mono',monospace;font-size:0.75rem;outline:none;"
+            onkeydown="if(event.key==='Enter')lpVerify()" />
+          <button onclick="lpVerify()" id="lp-verify-btn"
+            style="background:#c9a84c;color:#0a0a0b;border:none;border-radius:8px;padding:11px 22px;font-family:'Instrument Sans',sans-serif;font-size:0.85rem;font-weight:600;cursor:pointer;white-space:nowrap;">
+            Verify →
+          </button>
+        </div>
+        <div id="lp-verify-result" style="display:none;"></div>
+      </div>
+
+      <!-- Three proof points -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+        <div style="background:#0f0f10;border:1px solid #1e1e1e;border-radius:10px;padding:18px;">
+          <div style="font-size:1.3rem;margin-bottom:8px;">🔐</div>
+          <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px;">Ed25519 Signed</div>
+          <div style="font-size:0.72rem;color:#6b6b6b;line-height:1.5;">Every decision cryptographically signed by the agent identity key.</div>
+        </div>
+        <div style="background:#0f0f10;border:1px solid #1e1e1e;border-radius:10px;padding:18px;">
+          <div style="font-size:1.3rem;margin-bottom:8px;">⏱</div>
+          <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px;">RFC 3161 Timestamped</div>
+          <div style="font-size:0.72rem;color:#6b6b6b;line-height:1.5;">DigiCert TSA under eIDAS Art. 41 — legally valid across the EU.</div>
+        </div>
+        <div style="background:#0f0f10;border:1px solid #1e1e1e;border-radius:10px;padding:18px;">
+          <div style="font-size:1.3rem;margin-bottom:8px;">🌐</div>
+          <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px;">Independently Verifiable</div>
+          <div style="font-size:0.72rem;color:#6b6b6b;line-height:1.5;">No login. No vendor access. The receipt speaks for itself.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="cta-section reveal" id="contact">
     <p class="section-label">Early Access</p>
     <h2>Are you building AI agents<br><em>in a regulated industry?</em></h2>
@@ -787,5 +835,45 @@
     }
   </script>
 
+
+  <script>
+  async function lpVerify() {
+    const rid = document.getElementById('lp-verify-input').value.trim();
+    if (!rid) return;
+    const btn = document.getElementById('lp-verify-btn');
+    const resultEl = document.getElementById('lp-verify-result');
+    btn.textContent = '...';
+    btn.disabled = true;
+    resultEl.style.display = 'none';
+    try {
+      const res = await fetch('https://admin.vaultra.io/api/verify/' + encodeURIComponent(rid));
+      const d = await res.json();
+      if (d.valid) {
+        const rfc = d.rfc3161_valid
+          ? '<span style="color:#4caf7d;font-weight:600;">✓ STAMPED — ' + (d.rfc3161_ts || '') + '</span>'
+          : '<span style="color:#c9a84c;">⏳ Pending DigiCert TSA</span>';
+        resultEl.innerHTML =
+          '<div style="background:rgba(76,175,125,0.08);border:1px solid rgba(76,175,125,0.25);border-radius:8px;padding:14px 16px;">' +
+          '<div style="color:#4caf7d;font-weight:600;margin-bottom:10px;">✓ Receipt Valid — Cryptographically Verified</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-family:'DM Mono',monospace;font-size:0.68rem;">' +
+          '<div><span style="color:#6b6b6b;">Decision:</span> <span style="color:#f5f3ee;">' + (d.decision_type||'—') + '</span></div>' +
+          '<div><span style="color:#6b6b6b;">Regulation:</span> <span style="color:#f5f3ee;">' + (d.regulation||'—') + '</span></div>' +
+          '<div><span style="color:#6b6b6b;">Block:</span> <span style="color:#f5f3ee;">#' + d.block_number + '</span></div>' +
+          '<div><span style="color:#6b6b6b;">Created:</span> <span style="color:#f5f3ee;">' + d.created_at + '</span></div>' +
+          '<div style="grid-column:1/-1"><span style="color:#6b6b6b;">RFC 3161:</span> ' + rfc + '</div>' +
+          '</div>' +
+          '<div style="margin-top:10px;"><a href="/verify?id=' + rid + '" style="color:#c9a84c;font-size:0.7rem;font-family:'DM Mono',monospace;">View full verification →</a></div>' +
+          '</div>';
+      } else {
+        resultEl.innerHTML = '<div style="color:#e05252;font-family:'DM Mono',monospace;font-size:0.75rem;">Receipt not found — try a different ID</div>';
+      }
+    } catch(e) {
+      resultEl.innerHTML = '<div style="color:#e05252;font-family:'DM Mono',monospace;font-size:0.75rem;">Connection error — please try again</div>';
+    }
+    resultEl.style.display = 'block';
+    btn.textContent = 'Verify →';
+    btn.disabled = false;
+  }
+  </script>
 </body>
 </html>
