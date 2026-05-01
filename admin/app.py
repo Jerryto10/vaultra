@@ -831,6 +831,46 @@ def health_check_page():
         total_receipts=total_receipts,
         last_receipt_ago=last_receipt_ago or "—")
 
+
+@app.route("/api/verify/<rid>", methods=["GET"])
+def verify_receipt(rid):
+    """Public receipt verification endpoint — no login required.
+    Returns only public compliance data, no PII or client details.
+    """
+    db = get_db()
+    receipt = db.execute(
+        """SELECT r.id, r.agent_id, r.decision_type, r.regulation,
+                  r.block_number, r.input_hash, r.rfc3161_ts,
+                  r.status, r.created_at
+           FROM receipts r WHERE r.id=?""",
+        (rid,)
+    ).fetchone()
+
+    if not receipt:
+        return jsonify({
+            "valid": False,
+            "error": "Receipt not found",
+            "receipt_id": rid
+        }), 404
+
+    import json as _json
+    return jsonify({
+        "valid": True,
+        "receipt_id":    receipt["id"],
+        "agent_id":      receipt["agent_id"],
+        "decision_type": receipt["decision_type"] or "UNKNOWN",
+        "regulation":    receipt["regulation"] or "—",
+        "block_number":  receipt["block_number"],
+        "input_hash":    receipt["input_hash"] or "",
+        "rfc3161_ts":    receipt["rfc3161_ts"],
+        "rfc3161_valid": bool(receipt["rfc3161_ts"]),
+        "eidas_art41":   bool(receipt["rfc3161_ts"]),
+        "status":        receipt["status"],
+        "created_at":    fmt_date(receipt["created_at"]),
+        "verified_by":   "Vaultra AI Agent Compliance Layer",
+        "verify_url":    "https://vaultra.io/verify/" + receipt["id"],
+    })
+
 @app.route("/health")
 def health():
     return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"DigiCert (https://timestamp.digicert.com)","tsa_status":"active"})
