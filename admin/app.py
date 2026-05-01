@@ -472,32 +472,102 @@ def update_notes(cid):
     log_action("UPDATE_NOTES", cid)
     return jsonify({"success":True})
 
+
+@app.route("/clients/<cid>/edit", methods=["POST"])
+@login_required
+def edit_client(cid):
+    """Edit client details — plan, email, industry, country, monthly_limit."""
+    data = request.get_json()
+    db = get_db()
+    client = db.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
+    if not client:
+        return jsonify({"error": "Client not found"}), 404
+
+    plan = data.get("plan", client["plan"])
+    email = data.get("email", client["email"])
+    industry = data.get("industry", client["industry"])
+    country = data.get("country", client["country"])
+
+    # Auto-set monthly_limit based on plan unless custom override
+    plan_limits = {"starter": 100000, "growth": 1000000, "enterprise": 999999999}
+    monthly_limit = data.get("monthly_limit")
+    if monthly_limit:
+        try:
+            monthly_limit = int(monthly_limit)
+        except ValueError:
+            monthly_limit = plan_limits.get(plan, 100000)
+    else:
+        monthly_limit = plan_limits.get(plan, client["monthly_limit"])
+
+    db.execute("""
+        UPDATE clients SET plan=?, email=?, industry=?, country=?, monthly_limit=?
+        WHERE id=?
+    """, (plan, email, industry, country, monthly_limit, cid))
+    db.commit()
+
+    log_action("EDIT_CLIENT", cid,
+        f"{client['company_name']} — plan:{client['plan']}→{plan} limit:{client['monthly_limit']}→{monthly_limit}")
+    return jsonify({"success": True})
+
 @app.route("/receipts")
 @login_required
 def receipts():
     db = get_db()
     client_id = request.args.get("client_id")
-    status = request.args.get("status")
-    query = """
-        SELECT r.*, c.company_name FROM receipts r
-        JOIN clients c ON r.client_id = c.id WHERE 1=1
-    """
-    params = []
-    if client_id:
-        query += " AND r.client_id=?"; params.append(client_id)
-    if status:
-        query += " AND r.status=?"; params.append(status)
-    query += " ORDER BY r.created_at DESC LIMIT 100"
-    all_receipts = db.execute(query, params).fetchall()
+    status_filter = request.args.get("status")
+    search = request.args.get("search", "").strip()
+    page = max(1, int(request.args.get("page", 1)))
+    per_page = 50
     clients_list = db.execute(
         "SELECT id, company_name FROM clients WHERE archived=0 ORDER BY company_name"
     ).fetchall()
+
+    query = "SELECT r.*, c.company_name FROM receipts r JOIN clients c ON r.client_id=c.id WHERE 1=1"
+    params = []
+    if client_id:
+        query += " AND r.client_id=?"
+        params.append(client_id)
+    if status_filter:
+        query += " AND r.status=?"
+        params.append(status_filter)
+    if search:
+        query += " AND (r.id LIKE ? OR r.agent_id LIKE ? OR r.decision_type LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+
+    count_query = query.replace("SELECT r.*, c.company_name", "SELECT COUNT(*)")
+    total = db.execute(count_query, params).fetchone()[0]
+
+    query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
+    params.extend([per_page, (page - 1) * per_page])
+    all_receipts = db.execute(query, params).fetchall()
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
     return render_template("receipts.html",
         receipts=all_receipts,
         clients=clients_list,
+        selected_client=client_id,
+        selected_status=status_filter,
+        search=search,
+        page=page,
+        total_pages=total_pages,
+        total=total,
         username=session.get("username"),
         role=session.get("role"),
     )
+
+
+@app.route("/receipts/<rid>")
+@login_required
+def receipt_detail(rid):
+    """Show full detail of a single compliance receipt."""
+    db = get_db()
+    receipt = db.execute(
+        "SELECT r.*, c.company_name, c.plan FROM receipts r JOIN clients c ON r.client_id=c.id WHERE r.id=?",
+        (rid,)
+    ).fetchone()
+    if not receipt:
+        return "Receipt not found", 404
+    return render_template("receipt_detail.html", r=receipt)
 
 @app.route("/audit-log")
 @login_required
@@ -703,6 +773,38 @@ def report_pdf(cid):
     return Response(html, mimetype="text/html",
         headers={"Content-Disposition": "inline; filename=" + filename})
 
+
+
+@app.route("/health-check")
+@login_required
+def health_check_page():
+    """Visual health check dashboard."""
+    import requests as req
+    tsa_ok = False
+    try:
+        r = req.get("https://timestamp.digicert.com", timeout=5)
+        tsa_ok = r.status_code < 500
+    except Exception:
+        tsa_ok = False
+    db = get_db()
+    total_clients = db.execute("SELECT COUNT(*) FROM clients WHERE archived=0").fetchone()[0]
+    total_receipts = db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
+    recent_receipt = db.execute("SELECT created_at FROM receipts ORDER BY created_at DESC LIMIT 1").fetchone()
+    last_receipt_ago = None
+    if recent_receipt:
+        import time
+        diff = time.time() - recent_receipt["created_at"]
+        if diff < 3600:
+            last_receipt_ago = f"{int(diff/60)}m ago"
+        elif diff < 86400:
+            last_receipt_ago = f"{int(diff/3600)}h ago"
+        else:
+            last_receipt_ago = f"{int(diff/86400)}d ago"
+    return render_template("health_check.html",
+        tsa_ok=tsa_ok,
+        total_clients=total_clients,
+        total_receipts=total_receipts,
+        last_receipt_ago=last_receipt_ago or "—")
 
 @app.route("/health")
 def health():

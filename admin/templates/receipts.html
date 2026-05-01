@@ -37,7 +37,7 @@
     <tbody>
       {% for r in receipts %}
       <tr>
-        <td class="mono" style="color:var(--gold);cursor:pointer"
+        <td class="mono" style="color:var(--gold);cursor:pointer" onclick="window.location='/receipts/'+'{{ r.id }}'"
           title="Agent: {{ r.agent_id }}&#10;Decision: {{ r.decision[:80] }}&#10;Regulation: {{ r.regulation }}&#10;Block: #{{ r.block_number }}&#10;RFC 3161: {{ r.rfc3161_ts or 'Pending' }}&#10;Hash: {{ r.input_hash[:32] }}...">
           {{ r.id[:8] }} <span style="font-size:0.6rem;color:var(--muted)">ⓘ</span>
         </td>
@@ -78,6 +78,19 @@
     </tbody>
   </table>
 </div>
+
+{% if total_pages > 1 %}
+<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;">
+  {% if page > 1 %}
+    <a href="?page={{ page-1 }}&client_id={{ selected_client or '' }}&status={{ selected_status or '' }}&search={{ search or '' }}" class="btn">← Prev</a>
+  {% endif %}
+  <span class="mono" style="font-size:0.7rem;color:var(--muted);">Page {{ page }} of {{ total_pages }} — {{ total }} receipts</span>
+  {% if page < total_pages %}
+    <a href="?page={{ page+1 }}&client_id={{ selected_client or '' }}&status={{ selected_status or '' }}&search={{ search or '' }}" class="btn">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
@@ -89,6 +102,14 @@
     if(client) url += 'client_id=' + client + '&';
     if(status) url += 'status=' + status;
     window.location.href = url;
+  }
+
+  function applySearch(){
+    const s = document.getElementById('search-input').value;
+    const url = new URL(window.location);
+    if(s) url.searchParams.set('search',s); else url.searchParams.delete('search');
+    url.searchParams.delete('page');
+    window.location.href = url.toString();
   }
 </script>
 {% endblock %}

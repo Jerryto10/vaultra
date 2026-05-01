@@ -71,6 +71,7 @@
                 {% endif %}
                 <button class="btn" onclick="rotateKey('{{ c.id }}')">Rotate Key</button>
                 <button class="btn btn-danger" onclick="archiveClient('{{ c.id }}')">Archive</button>
+                <button class="btn" onclick="openEdit('{{ c.id }}','{{ c.company_name }}','{{ c.email }}','{{ c.plan }}','{{ c.industry or '' }}','{{ c.country or '' }}','{{ c.monthly_limit }}')">Edit</button>
               {% endif %}
             {% endif %}
             <button class="btn" onclick="openNotes('{{ c.id }}','{{ c.notes|default('')|replace("'","\\'")|replace('\n',' ') }}')">Notes</button>
@@ -129,6 +130,42 @@
     <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-bottom:10px;">The old key is now invalid. Share securely with client.</div>
     <div class="key-box" id="rotate-key-val"></div>
     <div class="modal-btns"><button class="btn btn-gold" onclick="closeRotateModal()">Done — I copied it</button></div>
+  </div>
+</div>
+
+<!-- EDIT CLIENT MODAL -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-title">EDIT CLIENT</div>
+    <div class="alert" id="edit-alert"></div>
+    <input type="hidden" id="edit-client-id" />
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="field"><label>EMAIL</label><input type="email" id="edit-email" /></div>
+      <div class="field"><label>PLAN</label>
+        <select id="edit-plan">
+          <option value="starter">Starter — $299/mo — 100,000 decisions/mo</option>
+          <option value="growth">Growth — $799/mo — 1,000,000 decisions/mo</option>
+          <option value="enterprise">Enterprise — Custom</option>
+        </select>
+      </div>
+      <div class="field"><label>INDUSTRY</label>
+        <select id="edit-industry">
+          <option value="fintech">Fintech</option>
+          <option value="banking">Banking</option>
+          <option value="payments">Payments</option>
+          <option value="insurance">Insurance</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field"><label>COUNTRY (ISO)</label>
+        <input type="text" id="edit-country" maxlength="2" style="text-transform:uppercase" /></div>
+      <div class="field"><label>MONTHLY LIMIT (custom override)</label>
+        <input type="number" id="edit-limit" placeholder="Leave blank = auto from plan" /></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-gold" onclick="saveEdit()">Save Changes →</button>
+    </div>
   </div>
 </div>
 
@@ -214,5 +251,46 @@
   }
 
   document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');}));
+
+  function openEdit(id, company, email, plan, industry, country, limit){
+    document.getElementById('edit-client-id').value = id;
+    document.getElementById('edit-email').value = email;
+    document.getElementById('edit-industry').value = industry || 'fintech';
+    document.getElementById('edit-country').value = country;
+    document.getElementById('edit-limit').value = '';
+    const planSel = document.getElementById('edit-plan');
+    for(let o of planSel.options){ if(o.value===plan) o.selected=true; }
+    document.getElementById('edit-modal').classList.add('open');
+  }
+
+  function closeEditModal(){
+    document.getElementById('edit-modal').classList.remove('open');
+  }
+
+  async function saveEdit(){
+    const id = document.getElementById('edit-client-id').value;
+    const payload = {
+      email:    document.getElementById('edit-email').value.trim(),
+      plan:     document.getElementById('edit-plan').value,
+      industry: document.getElementById('edit-industry').value,
+      country:  document.getElementById('edit-country').value.trim().toUpperCase(),
+    };
+    const limit = document.getElementById('edit-limit').value.trim();
+    if(limit) payload.monthly_limit = parseInt(limit);
+    const res = await fetch(`/clients/${id}/edit`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(data.success){
+      closeEditModal();
+      showPageAlert('success','Client updated successfully.');
+      setTimeout(()=>location.reload(), 1500);
+    } else {
+      const el = document.getElementById('edit-alert');
+      el.className='alert error'; el.textContent=data.error||'Error.'; el.style.display='block';
+    }
+  }
 </script>
 {% endblock %}
