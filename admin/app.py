@@ -601,58 +601,62 @@ def report_pdf(cid):
     review   = sum(1 for r in receipts if "REVIEW" in (r["decision_type"] or ""))
     stamped  = sum(1 for r in receipts if r["rfc3161_ts"])
 
-    log_action("EXPORT_PDF", cid, f"{client['company_name']} — {len(receipts)} receipts")
+    log_action("EXPORT_PDF", cid, client["company_name"] + " — " + str(len(receipts)) + " receipts")
 
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Vaultra Compliance Report — {client['company_name']}</title>
-<style>
-  body {{ font-family: 'Courier New', monospace; font-size: 11px; color: #111; margin: 40px; }}
-  h1 {{ font-size: 20px; color: #0a0a0a; border-bottom: 2px solid #c9a84c; padding-bottom: 8px; }}
-  h2 {{ font-size: 13px; color: #444; margin-top: 24px; }}
-  .meta {{ background: #f9f7f0; border: 1px solid #e0d8c0; padding: 12px; margin: 16px 0; border-radius: 4px; }}
-  .meta p {{ margin: 4px 0; }}
-  .stats {{ display: flex; gap: 16px; margin: 16px 0; }}
-  .stat {{ background: #0a0a0a; color: #c9a84c; padding: 10px 16px; border-radius: 4px; text-align: center; }}
-  .stat .n {{ font-size: 22px; font-weight: bold; }}
-  .stat .l {{ font-size: 9px; color: #888; }}
-  table {{ width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 9.5px; }}
-  th {{ background: #0a0a0a; color: #c9a84c; padding: 6px 8px; text-align: left; }}
-  tr:nth-child(even) {{ background: #f9f7f0; }}
-  td {{ padding: 5px 8px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }}
-  .badge {{ display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 8px; font-weight: bold; }}
-  .approved {{ background: #d4edda; color: #155724; }}
-  .rejected {{ background: #f8d7da; color: #721c24; }}
-  .review {{ background: #fff3cd; color: #856404; }}
-  .stamped {{ background: #d4edda; color: #155724; }}
-  .pending {{ background: #fff3cd; color: #856404; }}
-  .footer {{ margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9px; color: #888; }}
-  @media print {{ body {{ margin: 20px; }} }}
-</style>
-</head>
-<body>
-<h1>Vaultra — Compliance Receipt Report</h1>
-<div class="meta">
-  <p><strong>Client:</strong> {client['company_name']}</p>
-  <p><strong>Plan:</strong> {client['plan'].upper()} | <strong>Industry:</strong> {client.get('industry','—')} | <strong>Country:</strong> {client.get('country','—')}</p>
-  <p><strong>Generated:</strong> {fmt_date(time.time())} UTC | <strong>Regulation:</strong> EU AI Act Art. 12 + GDPR Art. 22</p>
-  <p><strong>Total Receipts:</strong> {len(receipts)} | <strong>RFC 3161 Stamped:</strong> {stamped}/{len(receipts)}</p>
-</div>
-<div class="stats">
-  <div class="stat"><div class="n">{len(receipts)}</div><div class="l">TOTAL</div></div>
-  <div class="stat"><div class="n">{approved}</div><div class="l">APPROVED</div></div>
-  <div class="stat"><div class="n">{rejected}</div><div class="l">REJECTED</div></div>
-  <div class="stat"><div class="n">{review}</div><div class="l">REVIEW</div></div>
-  <div class="stat"><div class="n">{stamped}</div><div class="l">STAMPED</div></div>
-</div>
-<h2>Compliance Receipts</h2>
-<table>
-<tr>
-  <th>Receipt ID</th><th>Agent</th><th>Decision Type</th>
-  <th>Regulation</th><th>Block #</th><th>RFC 3161</th><th>Status</th><th>Date UTC</th>
-</tr>"""
+    company_name = client["company_name"]
+    plan = client["plan"].upper()
+    industry = client["industry"] or "—"
+    country = client["country"] or "—"
+    generated = fmt_date(time.time())
+
+    css = """
+    body { font-family: 'Courier New', monospace; font-size: 11px; color: #111; margin: 40px; }
+    h1 { font-size: 20px; color: #0a0a0a; border-bottom: 2px solid #c9a84c; padding-bottom: 8px; }
+    h2 { font-size: 13px; color: #444; margin-top: 24px; }
+    .meta { background: #f9f7f0; border: 1px solid #e0d8c0; padding: 12px; margin: 16px 0; border-radius: 4px; }
+    .meta p { margin: 4px 0; }
+    .stats { display: flex; gap: 16px; margin: 16px 0; }
+    .stat { background: #0a0a0a; color: #c9a84c; padding: 10px 16px; border-radius: 4px; text-align: center; }
+    .stat .n { font-size: 22px; font-weight: bold; }
+    .stat .l { font-size: 9px; color: #888; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 9.5px; }
+    th { background: #0a0a0a; color: #c9a84c; padding: 6px 8px; text-align: left; }
+    tr:nth-child(even) { background: #f9f7f0; }
+    td { padding: 5px 8px; border-bottom: 1px solid #e8e8e8; vertical-align: top; }
+    .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 8px; font-weight: bold; }
+    .approved { background: #d4edda; color: #155724; }
+    .rejected { background: #f8d7da; color: #721c24; }
+    .review { background: #fff3cd; color: #856404; }
+    .stamped { background: #d4edda; color: #155724; }
+    .pending { background: #fff3cd; color: #856404; }
+    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 9px; color: #888; }
+    @media print { body { margin: 20px; } }
+    """
+
+    parts = [
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>",
+        "<title>Vaultra Compliance Report — " + company_name + "</title>",
+        "<style>" + css + "</style></head><body>",
+        "<h1>Vaultra — Compliance Receipt Report</h1>",
+        "<div class='meta'>",
+        "<p><strong>Client:</strong> " + company_name + "</p>",
+        "<p><strong>Plan:</strong> " + plan + " | <strong>Industry:</strong> " + industry + " | <strong>Country:</strong> " + country + "</p>",
+        "<p><strong>Generated:</strong> " + generated + " UTC | <strong>Regulation:</strong> EU AI Act Art. 12 + GDPR Art. 22</p>",
+        "<p><strong>Total Receipts:</strong> " + str(len(receipts)) + " | <strong>RFC 3161 Stamped:</strong> " + str(stamped) + "/" + str(len(receipts)) + "</p>",
+        "</div>",
+        "<div class='stats'>",
+        "<div class='stat'><div class='n'>" + str(len(receipts)) + "</div><div class='l'>TOTAL</div></div>",
+        "<div class='stat'><div class='n'>" + str(approved) + "</div><div class='l'>APPROVED</div></div>",
+        "<div class='stat'><div class='n'>" + str(rejected) + "</div><div class='l'>REJECTED</div></div>",
+        "<div class='stat'><div class='n'>" + str(review) + "</div><div class='l'>REVIEW</div></div>",
+        "<div class='stat'><div class='n'>" + str(stamped) + "</div><div class='l'>STAMPED</div></div>",
+        "</div>",
+        "<h2>Compliance Receipts</h2>",
+        "<table><tr>",
+        "<th>Receipt ID</th><th>Agent</th><th>Decision Type</th>",
+        "<th>Regulation</th><th>Block #</th><th>RFC 3161</th><th>Status</th><th>Date UTC</th>",
+        "</tr>",
+    ]
 
     for r in receipts:
         dt = (r["decision_type"] or "UNKNOWN").upper()
@@ -660,6 +664,9 @@ def report_pdf(cid):
         agent = (r["agent_id"] or "—")
         status = (r["status"] or "valid").upper()
         rid = (r["id"] or "")[:8]
+        block = str(r["block_number"] or 0)
+        date = fmt_date(r["created_at"])
+
         if "APPROVED" in dt:
             badge_cls = "approved"
         elif "REJECTED" in dt:
@@ -667,36 +674,35 @@ def report_pdf(cid):
         else:
             badge_cls = "review"
 
-        rfc = r["rfc3161_ts"]
-        rfc_html = '<span class="badge stamped">&#10003; STAMPED</span>' if rfc else '<span class="badge pending">PENDING</span>'
+        rfc_html = '<span class="badge stamped">&#10003; STAMPED</span>' if r["rfc3161_ts"] else '<span class="badge pending">PENDING</span>'
 
-        html += (
+        parts.append(
             "<tr>"
-            f'<td style="font-family:monospace;color:#c9a84c">{rid}</td>'
-            f"<td>{agent}</td>"
-            f'<td><span class="badge {badge_cls}">{dt}</span></td>'
-            f'<td style="font-size:8px">{reg}</td>'
-            f"<td>#{r['block_number']}</td>"
-            f"<td>{rfc_html}</td>"
-            f'<td><span class="badge stamped">{status}</span></td>'
-            f'<td style="white-space:nowrap">{fmt_date(r["created_at"])}</td>'
-            "</tr>"
+            + '<td style="font-family:monospace;color:#c9a84c">' + rid + "</td>"
+            + "<td>" + agent + "</td>"
+            + '<td><span class="badge ' + badge_cls + '">' + dt + "</span></td>"
+            + '<td style="font-size:8px">' + reg + "</td>"
+            + "<td>#" + block + "</td>"
+            + "<td>" + rfc_html + "</td>"
+            + '<td><span class="badge stamped">' + status + "</span></td>"
+            + '<td style="white-space:nowrap">' + date + "</td>"
+            + "</tr>"
         )
 
-    html += f"""
-</table>
-<div class="footer">
-  <p>This report was generated by Vaultra AI Agent Compliance Layer — vaultra.io</p>
-  <p>All receipts are cryptographically signed (Ed25519) and RFC 3161 timestamped under eIDAS Art. 41.</p>
-  <p>Report generated: {fmt_date(time.time())} | Vaultra Admin Panel v2.0 | Confidential</p>
-</div>
-</body></html>"""
+    parts.append("</table>")
+    parts.append("<div class='footer'>")
+    parts.append("<p>This report was generated by Vaultra AI Agent Compliance Layer — vaultra.io</p>")
+    parts.append("<p>All receipts are cryptographically signed (Ed25519) and RFC 3161 timestamped under eIDAS Art. 41.</p>")
+    parts.append("<p>Report generated: " + generated + " | Vaultra Admin Panel v2.0 | Confidential</p>")
+    parts.append("</div></body></html>")
+
+    html = "".join(parts)
 
     from flask import Response
-    company = client["company_name"].replace(" ", "_")
-    filename = f"vaultra_report_{company}_{time.strftime('%Y%m%d')}.html"
+    filename = "vaultra_report_" + company_name.replace(" ", "_") + "_" + time.strftime("%Y%m%d") + ".html"
     return Response(html, mimetype="text/html",
-        headers={"Content-Disposition": f"inline; filename={filename}"})
+        headers={"Content-Disposition": "inline; filename=" + filename})
+
 
 @app.route("/health")
 def health():
