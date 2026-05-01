@@ -144,6 +144,9 @@ def init_db():
         "ALTER TABLE clients ADD COLUMN month_start REAL NOT NULL DEFAULT 0",
         "ALTER TABLE clients ADD COLUMN month_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE audit_log ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'",
+        "ALTER TABLE clients ADD COLUMN address TEXT",
+        "ALTER TABLE clients ADD COLUMN phone TEXT",
+        "ALTER TABLE clients ADD COLUMN website TEXT",
     ]:
         try:
             db.execute(col_sql)
@@ -487,6 +490,9 @@ def edit_client(cid):
     email = data.get("email", client["email"])
     industry = data.get("industry", client["industry"])
     country = data.get("country", client["country"])
+    address = data.get("address", client["address"])
+    phone = data.get("phone", client["phone"])
+    website = data.get("website", client["website"])
 
     # Auto-set monthly_limit based on plan unless custom override
     plan_limits = {"starter": 100000, "growth": 1000000, "enterprise": 999999999}
@@ -500,9 +506,9 @@ def edit_client(cid):
         monthly_limit = plan_limits.get(plan, client["monthly_limit"])
 
     db.execute("""
-        UPDATE clients SET plan=?, email=?, industry=?, country=?, monthly_limit=?
-        WHERE id=?
-    """, (plan, email, industry, country, monthly_limit, cid))
+        UPDATE clients SET plan=?, email=?, industry=?, country=?, monthly_limit=?,
+        address=?, phone=?, website=? WHERE id=?
+    """, (plan, email, industry, country, monthly_limit, address, phone, website, cid))
     db.commit()
 
     log_action("EDIT_CLIENT", cid,
@@ -567,7 +573,22 @@ def receipt_detail(rid):
     ).fetchone()
     if not receipt:
         return "Receipt not found", 404
-    return render_template("receipt_detail.html", r=receipt)
+    import json as _json
+    receipt_json = _json.dumps({
+        "receipt_id":    receipt["id"],
+        "agent_id":      receipt["agent_id"],
+        "client_id":     receipt["client_id"],
+        "company":       receipt["company_name"],
+        "decision_type": receipt["decision_type"],
+        "decision":      receipt["decision"],
+        "regulation":    receipt["regulation"],
+        "block_number":  receipt["block_number"],
+        "input_hash":    receipt["input_hash"],
+        "rfc3161_ts":    receipt["rfc3161_ts"],
+        "status":        receipt["status"],
+        "created_at":    fmt_date(receipt["created_at"]),
+    }, indent=2)
+    return render_template("receipt_detail.html", r=receipt, receipt_json=receipt_json)
 
 @app.route("/audit-log")
 @login_required

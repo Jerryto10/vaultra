@@ -10,12 +10,11 @@
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
 
-  <!-- Receipt Identity -->
   <div class="panel">
     <div class="panel-header"><div class="panel-title">RECEIPT IDENTITY</div></div>
     <div style="padding:16px;display:grid;gap:10px;">
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">RECEIPT ID</div>
-        <div class="mono" style="color:var(--gold);font-size:1.1rem;">{{ r.id }}</div></div>
+        <div class="mono" style="color:var(--gold);font-size:0.85rem;word-break:break-all;">{{ r.id }}</div></div>
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">CLIENT</div>
         <div style="font-weight:600;">{{ r.company_name }}</div></div>
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">AGENT ID</div>
@@ -27,7 +26,6 @@
     </div>
   </div>
 
-  <!-- Decision -->
   <div class="panel">
     <div class="panel-header"><div class="panel-title">DECISION</div></div>
     <div style="padding:16px;display:grid;gap:10px;">
@@ -39,47 +37,36 @@
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">BLOCK NUMBER</div>
         <div class="mono">#{{ r.block_number }}</div></div>
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">DECISION PAYLOAD</div>
-        <div class="mono" style="font-size:0.62rem;color:var(--muted);word-break:break-all;max-height:80px;overflow-y:auto;">{{ r.decision or '—' }}</div></div>
+        <div class="mono" style="font-size:0.62rem;color:var(--muted);word-break:break-all;max-height:80px;overflow-y:auto;background:#0a0a0a;padding:8px;border-radius:4px;">{{ r.decision or '—' }}</div></div>
     </div>
   </div>
 
-  <!-- Cryptographic Proof -->
   <div class="panel">
     <div class="panel-header"><div class="panel-title">CRYPTOGRAPHIC PROOF</div></div>
     <div style="padding:16px;display:grid;gap:10px;">
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">INPUT HASH (SHA-256)</div>
-        <div class="mono" style="font-size:0.62rem;color:var(--gold);word-break:break-all;">{{ r.input_hash or '—' }}</div></div>
+        <div class="mono" style="font-size:0.58rem;color:var(--gold);word-break:break-all;">{{ r.input_hash or '—' }}</div></div>
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">RFC 3161 TIMESTAMP</div>
         {% if r.rfc3161_ts %}
           <span class="badge bg">✓ STAMPED — {{ r.rfc3161_ts }}</span>
         {% else %}
-          <span class="badge bo">⏳ PENDING</span>
+          <span class="badge bo">⏳ PENDING — DigiCert TSA</span>
         {% endif %}
       </div>
       <div><div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">eIDAS STATUS</div>
-        <div style="font-size:0.72rem;">{% if r.rfc3161_ts %}✓ Legally valid under eIDAS Art. 41{% else %}Pending DigiCert TSA{% endif %}</div></div>
+        <div style="font-size:0.72rem;color:{% if r.rfc3161_ts %}#4caf7d{% else %}var(--muted){% endif %};">
+          {% if r.rfc3161_ts %}✓ Legally valid under eIDAS Art. 41{% else %}Pending DigiCert TSA stamp{% endif %}
+        </div></div>
     </div>
   </div>
 
-  <!-- Raw JSON -->
   <div class="panel">
-    <div class="panel-header"><div class="panel-title">RAW RECEIPT JSON</div>
-      <button class="btn" onclick="copyJson()" style="font-size:0.6rem;padding:4px 10px;">Copy JSON</button>
+    <div class="panel-header">
+      <div class="panel-title">RAW RECEIPT JSON</div>
+      <button class="btn" id="copy-btn" onclick="copyJson()" style="font-size:0.6rem;padding:4px 10px;">Copy JSON</button>
     </div>
     <div style="padding:16px;">
-      <pre id="receipt-json" class="mono" style="font-size:0.58rem;color:var(--muted);overflow-x:auto;white-space:pre-wrap;word-break:break-all;background:#0a0a0a;padding:12px;border-radius:6px;max-height:220px;overflow-y:auto;">{{ {
-        "receipt_id": r.id,
-        "agent_id": r.agent_id,
-        "client_id": r.client_id,
-        "company": r.company_name,
-        "decision_type": r.decision_type,
-        "regulation": r.regulation,
-        "block_number": r.block_number,
-        "input_hash": r.input_hash,
-        "rfc3161_ts": r.rfc3161_ts,
-        "status": r.status,
-        "created_at": fmt_date(r.created_at)
-      } | tojson(indent=2) }}</pre>
+      <pre id="receipt-json" class="mono" style="font-size:0.58rem;color:var(--muted);overflow-x:auto;white-space:pre-wrap;word-break:break-all;background:#0a0a0a;padding:12px;border-radius:6px;max-height:220px;overflow-y:auto;">{{ receipt_json }}</pre>
     </div>
   </div>
 
@@ -91,7 +78,7 @@
 function copyJson(){
   const text = document.getElementById('receipt-json').textContent;
   navigator.clipboard.writeText(text).then(()=>{
-    const btn = event.target;
+    const btn = document.getElementById('copy-btn');
     btn.textContent = 'Copied!';
     setTimeout(()=>btn.textContent='Copy JSON', 2000);
   });

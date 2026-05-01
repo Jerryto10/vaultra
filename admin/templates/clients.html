@@ -71,7 +71,7 @@
                 {% endif %}
                 <button class="btn" onclick="rotateKey('{{ c.id }}')">Rotate Key</button>
                 <button class="btn btn-danger" onclick="archiveClient('{{ c.id }}')">Archive</button>
-                <button class="btn" onclick="openEdit('{{ c.id }}','{{ c.company_name }}','{{ c.email }}','{{ c.plan }}','{{ c.industry or '' }}','{{ c.country or '' }}','{{ c.monthly_limit }}')">Edit</button>
+                <button class="btn" onclick="openEdit('{{ c.id }}','{{ c.company_name }}','{{ c.email }}','{{ c.plan }}','{{ c.industry or '' }}','{{ c.country or '' }}','{{ c.monthly_limit }}','{{ c.address or '' }}','{{ c.phone or '' }}','{{ c.website or '' }}')">Edit</button>
               {% endif %}
             {% endif %}
             <button class="btn" onclick="openNotes('{{ c.id }}','{{ c.notes|default('')|replace("'","\\'")|replace('\n',' ') }}')">Notes</button>
@@ -161,6 +161,12 @@
         <input type="text" id="edit-country" maxlength="2" style="text-transform:uppercase" /></div>
       <div class="field"><label>MONTHLY LIMIT (custom override)</label>
         <input type="number" id="edit-limit" placeholder="Leave blank = auto from plan" /></div>
+      <div class="field"><label>ADDRESS</label>
+        <input type="text" id="edit-address" placeholder="Hauptstraße 1, 10115 Berlin" /></div>
+      <div class="field"><label>PHONE</label>
+        <input type="text" id="edit-phone" placeholder="+49 30 12345678" /></div>
+      <div class="field"><label>WEBSITE</label>
+        <input type="text" id="edit-website" placeholder="https://company.com" /></div>
     </div>
     <div class="modal-btns">
       <button class="btn" onclick="closeEditModal()">Cancel</button>
@@ -252,12 +258,15 @@
 
   document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');}));
 
-  function openEdit(id, company, email, plan, industry, country, limit){
+  function openEdit(id, company, email, plan, industry, country, limit, address, phone, website){
     document.getElementById('edit-client-id').value = id;
     document.getElementById('edit-email').value = email;
     document.getElementById('edit-industry').value = industry || 'fintech';
     document.getElementById('edit-country').value = country;
     document.getElementById('edit-limit').value = '';
+    document.getElementById('edit-address').value = address || '';
+    document.getElementById('edit-phone').value = phone || '';
+    document.getElementById('edit-website').value = website || '';
     const planSel = document.getElementById('edit-plan');
     for(let o of planSel.options){ if(o.value===plan) o.selected=true; }
     document.getElementById('edit-modal').classList.add('open');
@@ -274,6 +283,9 @@
       plan:     document.getElementById('edit-plan').value,
       industry: document.getElementById('edit-industry').value,
       country:  document.getElementById('edit-country').value.trim().toUpperCase(),
+      address:  document.getElementById('edit-address').value.trim(),
+      phone:    document.getElementById('edit-phone').value.trim(),
+      website:  document.getElementById('edit-website').value.trim(),
     };
     const limit = document.getElementById('edit-limit').value.trim();
     if(limit) payload.monthly_limit = parseInt(limit);
