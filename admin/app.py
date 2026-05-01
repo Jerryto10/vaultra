@@ -40,6 +40,44 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 SESSION_TIMEOUT = 1800  # 30 minutes
 
+# ── Session security ─────────────────────────────────────
+app.config["SESSION_COOKIE_SECURE"]   = True   # HTTPS only
+app.config["SESSION_COOKIE_HTTPONLY"] = True   # No JS access
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # CSRF protection
+app.config["PERMANENT_SESSION_LIFETIME"] = 0   # Expire on browser close
+app.config["SESSION_COOKIE_NAME"] = "vaultra_session"
+
+# ── Security headers ─────────────────────────────────────
+@app.after_request
+def security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+# ── Login rate limiting ───────────────────────────────────
+LOGIN_ATTEMPTS = {}   # {ip: [timestamp, ...]}
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_WINDOW = 300    # 5 minutes
+
+def check_login_rate(ip):
+    now = time.time()
+    attempts = LOGIN_ATTEMPTS.get(ip, [])
+    attempts = [t for t in attempts if now - t < LOGIN_WINDOW]
+    LOGIN_ATTEMPTS[ip] = attempts
+    return len(attempts) < MAX_LOGIN_ATTEMPTS
+
+def record_login_attempt(ip):
+    now = time.time()
+    attempts = LOGIN_ATTEMPTS.get(ip, [])
+    attempts.append(now)
+    LOGIN_ATTEMPTS[ip] = attempts
+
+def clear_login_attempts(ip):
+    LOGIN_ATTEMPTS.pop(ip, None)
+
 # ── Database ───────────────────────────────────────────────
 DB_PATH = os.environ.get("DB_PATH", "vaultra_admin.db")
 
@@ -288,6 +326,9 @@ def login():
     if reason == "timeout":
         error = "Session expired after 30 minutes of inactivity. Please sign in again."
     if request.method == "POST":
+        ip = request.remote_addr
+        if not check_login_rate(ip):
+            return render_template("login.html", error="Too many login attempts. Please wait 5 minutes."), 429
         username = request.form.get("username","").strip()
         password = request.form.get("password","")
         db = get_db()
@@ -304,6 +345,8 @@ def login():
             if not password_ok:
                 user = None
         if user:
+            clear_login_attempts(ip)
+            session.permanent = False
             session["admin_id"] = user["id"]
             session["username"] = user["username"]
             session["role"] = user["role"]
@@ -313,6 +356,7 @@ def login():
             db.commit()
             log_action("LOGIN", details=f"IP: {request.remote_addr}")
             return redirect(url_for("dashboard"))
+        record_login_attempt(ip)
         error = "Invalid username or password."
         time.sleep(1)  # Slow down brute force
     return render_template("login.html", error=error)
