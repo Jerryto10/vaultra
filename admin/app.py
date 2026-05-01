@@ -574,20 +574,23 @@ def receipt_detail(rid):
     if not receipt:
         return "Receipt not found", 404
     import json as _json
-    receipt_json = _json.dumps({
-        "receipt_id":    receipt["id"],
-        "agent_id":      receipt["agent_id"],
-        "client_id":     receipt["client_id"],
-        "company":       receipt["company_name"],
-        "decision_type": receipt["decision_type"],
-        "decision":      receipt["decision"],
-        "regulation":    receipt["regulation"],
-        "block_number":  receipt["block_number"],
-        "input_hash":    receipt["input_hash"],
-        "rfc3161_ts":    receipt["rfc3161_ts"],
-        "status":        receipt["status"],
-        "created_at":    fmt_date(receipt["created_at"]),
-    }, indent=2)
+    try:
+        receipt_json = _json.dumps({
+            "receipt_id":    receipt["id"],
+            "agent_id":      receipt["agent_id"],
+            "client_id":     receipt["client_id"],
+            "company":       receipt["company_name"],
+            "decision_type": receipt["decision_type"] or "",
+            "decision":      (receipt["decision"] or "")[:2000],
+            "regulation":    receipt["regulation"] or "",
+            "block_number":  receipt["block_number"],
+            "input_hash":    receipt["input_hash"] or "",
+            "rfc3161_ts":    receipt["rfc3161_ts"] or None,
+            "status":        receipt["status"] or "",
+            "created_at":    fmt_date(receipt["created_at"]),
+        }, indent=2, ensure_ascii=True)
+    except Exception as e:
+        receipt_json = '{"error": "Could not serialize receipt: ' + str(e) + '"}'
     return render_template("receipt_detail.html", r=receipt, receipt_json=receipt_json)
 
 @app.route("/audit-log")
