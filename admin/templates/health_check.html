@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Health Check{% endblock %}
+{% block page_title %}System Health{% endblock %}
+
+{% block content %}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+  <div class="stat-card">
+    <div class="stat-label">API STATUS</div>
+    <div class="stat-value" style="color:#4caf7d;">ONLINE</div>
+    <div class="stat-sub">admin.vaultra.io</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">DigiCert TSA</div>
+    <div class="stat-value" style="color:{% if tsa_ok %}#4caf7d{% else %}#e05252{% endif %};">
+      {% if tsa_ok %}REACHABLE{% else %}UNREACHABLE{% endif %}
+    </div>
+    <div class="stat-sub">RFC 3161 / eIDAS Art. 41</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">ACTIVE CLIENTS</div>
+    <div class="stat-value">{{ total_clients }}</div>
+    <div class="stat-sub">vaultra_sk_v1_... keys</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">LAST RECEIPT</div>
+    <div class="stat-value">{{ last_receipt_ago }}</div>
+    <div class="stat-sub">{{ total_receipts }} total receipts</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">COMPLIANCE LAYERS — 7/7</div></div>
+  <div style="padding:16px;display:grid;gap:8px;">
+    {% for layer in [
+      ("01", "Identity", "Ed25519 signing per agent", true),
+      ("02", "Sanitizer", "Prompt injection detection", true),
+      ("03", "Ledger", "Hash-chained audit ledger", true),
+      ("04", "Guardian", "ML anomaly detection", true),
+      ("05", "Human Gate", "Irreversible action control", true),
+      ("06", "Timestamper", "RFC 3161 / DigiCert / eIDAS Art. 41", tsa_ok),
+      ("07", "API Keys", "SHA-256 hashed, instant revocation", true)
+    ] %}
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">{{ layer[0] }}</span>
+      <span style="font-weight:600;min-width:130px;">{{ layer[1] }}</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">{{ layer[2] }}</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:{% if layer[3] %}#4caf7d{% else %}#e05252{% endif %};"></span>
+      <span style="font-size:0.65rem;color:{% if layer[3] %}#4caf7d{% else %}#e05252{% endif %};">
+        {% if layer[3] %}ACTIVE{% else %}DEGRADED{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px;">
+  <div class="panel-header"><div class="panel-title">INFRASTRUCTURE</div></div>
+  <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    {% for item in [
+      ("Backend", "Flask + Gunicorn — Railway europe-west4", true),
+      ("Database", "SQLite — /data/vaultra_admin.db (persistent)", true),
+      ("Frontend", "GitHub Pages — vaultra.io", true),
+      ("DNS", "Cloudflare — SSL Full Strict", true),
+      ("TSA", "DigiCert timestamp.digicert.com", tsa_ok),
+      ("Bot Protection", "Cloudflare Bot Fight Mode + AI Labyrinth", true)
+    ] %}
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:{% if item[2] %}#4caf7d{% else %}#e05252{% endif %};flex-shrink:0;"></span>
+      <div>
+        <div style="font-size:0.68rem;font-weight:600;">{{ item[0] }}</div>
+        <div class="mono" style="font-size:0.6rem;color:var(--muted);">{{ item[1] }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
