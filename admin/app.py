@@ -836,7 +836,7 @@ def health_check_page():
 def verify_receipt(rid):
     if request.method == "OPTIONS":
         response = app.make_default_options_response()
-        response.headers["Access-Control-Allow-Origin"] = "https://vaultra.io"
+        response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET"
         return response
     """Public receipt verification endpoint — no login required.
@@ -857,7 +857,7 @@ def verify_receipt(rid):
             "error": "Receipt not found",
             "receipt_id": rid
         })
-        resp.headers["Access-Control-Allow-Origin"] = "https://vaultra.io"
+        resp.headers["Access-Control-Allow-Origin"] = "*"
         return resp, 404
 
     import json as _json
@@ -877,7 +877,7 @@ def verify_receipt(rid):
         "verified_by":   "Vaultra AI Agent Compliance Layer",
         "verify_url":    "https://vaultra.io/verify?id=" + receipt["id"],
     })
-    response.headers["Access-Control-Allow-Origin"] = "https://vaultra.io"
+    response.headers["Access-Control-Allow-Origin"] = "*"
     return response
 
 @app.route("/health")
