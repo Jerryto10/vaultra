@@ -41,7 +41,7 @@ app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 SESSION_TIMEOUT = 1800  # 30 minutes
 
 # ── Session security ─────────────────────────────────────
-app.config["SESSION_COOKIE_SECURE"]   = True   # HTTPS only
+app.config["SESSION_COOKIE_SECURE"]   = False  # Railway handles HTTPS at proxy level
 app.config["SESSION_COOKIE_HTTPONLY"] = True   # No JS access
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # CSRF protection
 app.config["PERMANENT_SESSION_LIFETIME"] = 0   # Expire on browser close
