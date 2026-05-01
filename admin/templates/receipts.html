@@ -37,7 +37,7 @@
     <tbody>
       {% for r in receipts %}
       <tr>
-        <td class="mono" style="color:var(--gold);cursor:pointer" onclick="window.location='/receipts/'+'{{ r.id }}'"
+        <td class="mono" style="color:var(--gold);cursor:pointer" onclick="window.location='/receipts/{{ r.id }}'"
           title="Agent: {{ r.agent_id }}&#10;Decision: {{ r.decision[:80] }}&#10;Regulation: {{ r.regulation }}&#10;Block: #{{ r.block_number }}&#10;RFC 3161: {{ r.rfc3161_ts or 'Pending' }}&#10;Hash: {{ r.input_hash[:32] }}...">
           {{ r.id[:8] }} <span style="font-size:0.6rem;color:var(--muted)">ⓘ</span>
         </td>
