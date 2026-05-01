@@ -591,7 +591,8 @@ def receipt_detail(rid):
         }, indent=2, ensure_ascii=True)
     except Exception as e:
         receipt_json = '{"error": "Could not serialize receipt: ' + str(e) + '"}'
-    return render_template("receipt_detail.html", r=receipt, receipt_json=receipt_json)
+    return render_template("receipt_detail.html", r=receipt, receipt_json=receipt_json,
+        username=session.get("username"), role=session.get("role"))
 
 @app.route("/audit-log")
 @login_required
