@@ -31,49 +31,93 @@
 <div class="panel">
   <div class="panel-header"><div class="panel-title">COMPLIANCE LAYERS — 7/7</div></div>
   <div style="padding:16px;display:grid;gap:8px;">
-    {% set layers = [
-      ("01", "Identity", "Ed25519 signing per agent", true),
-      ("02", "Sanitizer", "Prompt injection detection", true),
-      ("03", "Ledger", "Hash-chained audit ledger", true),
-      ("04", "Guardian", "ML anomaly detection", true),
-      ("05", "Human Gate", "Irreversible action control", true),
-      ("06", "Timestamper", "RFC 3161 / DigiCert / eIDAS Art. 41", tsa_ok),
-      ("07", "API Keys", "SHA-256 hashed, instant revocation", true)
-    ] %}
-    {% for layer in layers %}
     <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
-      <span class="mono" style="color:var(--muted);font-size:0.7rem;">{{ layer[0] }}</span>
-      <span style="font-weight:600;min-width:130px;">{{ layer[1] }}</span>
-      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">{{ layer[2] }}</span>
-      <span style="width:8px;height:8px;border-radius:50%;background:{% if layer[3] %}#4caf7d{% else %}#e05252{% endif %};"></span>
-      <span style="font-size:0.65rem;color:{% if layer[3] %}#4caf7d{% else %}#e05252{% endif %};">
-        {% if layer[3] %}ACTIVE{% else %}DEGRADED{% endif %}
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">01</span>
+      <span style="font-weight:600;min-width:130px;">Identity</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">Ed25519 signing per agent</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:#4caf7d;"></span>
+      <span style="font-size:0.65rem;color:#4caf7d;">ACTIVE</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">02</span>
+      <span style="font-weight:600;min-width:130px;">Sanitizer</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">Prompt injection detection</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:#4caf7d;"></span>
+      <span style="font-size:0.65rem;color:#4caf7d;">ACTIVE</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">03</span>
+      <span style="font-weight:600;min-width:130px;">Ledger</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">Hash-chained audit ledger</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:#4caf7d;"></span>
+      <span style="font-size:0.65rem;color:#4caf7d;">ACTIVE</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">04</span>
+      <span style="font-weight:600;min-width:130px;">Guardian</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">ML anomaly detection</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:#4caf7d;"></span>
+      <span style="font-size:0.65rem;color:#4caf7d;">ACTIVE</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">05</span>
+      <span style="font-weight:600;min-width:130px;">Human Gate</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">Irreversible action control</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:#4caf7d;"></span>
+      <span style="font-size:0.65rem;color:#4caf7d;">ACTIVE</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">06</span>
+      <span style="font-weight:600;min-width:130px;">Timestamper</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">RFC 3161 / DigiCert / eIDAS Art. 41</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:{% if tsa_ok %}#4caf7d{% else %}#e05252{% endif %};"></span>
+      <span style="font-size:0.65rem;color:{% if tsa_ok %}#4caf7d{% else %}#e05252{% endif %};">
+        {% if tsa_ok %}ACTIVE{% else %}DEGRADED{% endif %}
       </span>
     </div>
-    {% endfor %}
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span class="mono" style="color:var(--muted);font-size:0.7rem;">07</span>
+      <span style="font-weight:600;min-width:130px;">API Keys</span>
+      <span class="mono" style="font-size:0.68rem;color:var(--muted);flex:1;">SHA-256 hashed, instant revocation</span>
+      <span style="width:8px;height:8px;border-radius:50%;background:#4caf7d;"></span>
+      <span style="font-size:0.65rem;color:#4caf7d;">ACTIVE</span>
+    </div>
   </div>
 </div>
 
 <div class="panel" style="margin-top:16px;">
   <div class="panel-header"><div class="panel-title">INFRASTRUCTURE</div></div>
   <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-    {% set infra = [
-      ("Backend", "Flask + Gunicorn — Railway europe-west4", true),
-      ("Database", "SQLite — /data/vaultra_admin.db (persistent)", true),
-      ("Frontend", "GitHub Pages — vaultra.io", true),
-      ("DNS", "Cloudflare — SSL Full Strict", true),
-      ("TSA", "DigiCert timestamp.digicert.com", tsa_ok),
-      ("Bot Protection", "Cloudflare Bot Fight Mode + AI Labyrinth", true)
-    ] %}
-    {% for item in infra %}
     <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
-      <span style="width:7px;height:7px;border-radius:50%;background:{% if item[2] %}#4caf7d{% else %}#e05252{% endif %};flex-shrink:0;"></span>
-      <div>
-        <div style="font-size:0.68rem;font-weight:600;">{{ item[0] }}</div>
-        <div class="mono" style="font-size:0.6rem;color:var(--muted);">{{ item[1] }}</div>
-      </div>
+      <span style="width:7px;height:7px;border-radius:50%;background:#4caf7d;flex-shrink:0;"></span>
+      <div><div style="font-size:0.68rem;font-weight:600;">Backend</div>
+      <div class="mono" style="font-size:0.6rem;color:var(--muted);">Flask + Gunicorn — Railway europe-west4</div></div>
     </div>
-    {% endfor %}
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#4caf7d;flex-shrink:0;"></span>
+      <div><div style="font-size:0.68rem;font-weight:600;">Database</div>
+      <div class="mono" style="font-size:0.6rem;color:var(--muted);">SQLite — /data/vaultra_admin.db (persistent)</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#4caf7d;flex-shrink:0;"></span>
+      <div><div style="font-size:0.68rem;font-weight:600;">Frontend</div>
+      <div class="mono" style="font-size:0.6rem;color:var(--muted);">GitHub Pages — vaultra.io</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#4caf7d;flex-shrink:0;"></span>
+      <div><div style="font-size:0.68rem;font-weight:600;">DNS</div>
+      <div class="mono" style="font-size:0.6rem;color:var(--muted);">Cloudflare — SSL Full Strict</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:{% if tsa_ok %}#4caf7d{% else %}#e05252{% endif %};flex-shrink:0;"></span>
+      <div><div style="font-size:0.68rem;font-weight:600;">TSA</div>
+      <div class="mono" style="font-size:0.6rem;color:var(--muted);">DigiCert timestamp.digicert.com</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d0d;border-radius:6px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#4caf7d;flex-shrink:0;"></span>
+      <div><div style="font-size:0.68rem;font-weight:600;">Bot Protection</div>
+      <div class="mono" style="font-size:0.6rem;color:var(--muted);">Cloudflare Bot Fight Mode + AI Labyrinth</div></div>
+    </div>
   </div>
 </div>
 {% endblock %}
