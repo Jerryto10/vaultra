@@ -919,6 +919,121 @@ def verify_receipt(rid):
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
 
+
+@app.route("/settings")
+@login_required
+def settings():
+    """User management and settings page."""
+    db = get_db()
+    users = db.execute("SELECT id, username, role, created_at, last_login FROM admin_users ORDER BY created_at").fetchall()
+    return render_template("settings.html",
+        users=users,
+        username=session.get("username"),
+        role=session.get("role"))
+
+
+@app.route("/settings/change-password", methods=["POST"])
+@login_required
+def change_password():
+    """Change current user password."""
+    data = request.get_json()
+    current = data.get("current_password", "")
+    new_pwd = data.get("new_password", "")
+    confirm = data.get("confirm_password", "")
+
+    if not current or not new_pwd or not confirm:
+        return jsonify({"error": "All fields required"}), 400
+    if new_pwd != confirm:
+        return jsonify({"error": "New passwords do not match"}), 400
+    if len(new_pwd) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+
+    db = get_db()
+    user = db.execute("SELECT * FROM admin_users WHERE id=?", (session["admin_id"],)).fetchone()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    password_ok = False
+    if BCRYPT_AVAILABLE and user["password_hash"].startswith("$2"):
+        import bcrypt as _bcrypt
+        password_ok = _bcrypt.checkpw(current.encode(), user["password_hash"].encode())
+    else:
+        password_ok = (hashlib.sha256(current.encode()).hexdigest() == user["password_hash"])
+
+    if not password_ok:
+        return jsonify({"error": "Current password is incorrect"}), 401
+
+    if BCRYPT_AVAILABLE:
+        import bcrypt as _bcrypt
+        new_hash = _bcrypt.hashpw(new_pwd.encode(), _bcrypt.gensalt()).decode()
+    else:
+        new_hash = hashlib.sha256(new_pwd.encode()).hexdigest()
+
+    db.execute("UPDATE admin_users SET password_hash=? WHERE id=?", (new_hash, session["admin_id"]))
+    db.commit()
+    log_action("CHANGE_PASSWORD", details="Password changed successfully")
+    return jsonify({"success": True})
+
+
+@app.route("/settings/create-user", methods=["POST"])
+@login_required
+def create_admin_user():
+    """Create a new admin user — admin role only."""
+    if session.get("role") != "admin":
+        return jsonify({"error": "Admin role required"}), 403
+
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    role = data.get("role", "support")
+
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if role not in ("admin", "support"):
+        return jsonify({"error": "Invalid role"}), 400
+
+    db = get_db()
+    existing = db.execute("SELECT id FROM admin_users WHERE username=?", (username,)).fetchone()
+    if existing:
+        return jsonify({"error": "Username already exists"}), 409
+
+    if BCRYPT_AVAILABLE:
+        import bcrypt as _bcrypt
+        pwd_hash = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
+    else:
+        pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+
+    new_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO admin_users (id, username, password_hash, role, created_at) VALUES (?,?,?,?,?)",
+        (new_id, username, pwd_hash, role, time.time())
+    )
+    db.commit()
+    log_action("CREATE_ADMIN_USER", new_id, f"username:{username} role:{role}")
+    return jsonify({"success": True})
+
+
+@app.route("/settings/delete-user/<uid>", methods=["POST"])
+@login_required
+def delete_admin_user(uid):
+    """Delete an admin user — cannot delete yourself."""
+    if session.get("role") != "admin":
+        return jsonify({"error": "Admin role required"}), 403
+    if uid == session.get("admin_id"):
+        return jsonify({"error": "Cannot delete your own account"}), 400
+
+    db = get_db()
+    user = db.execute("SELECT username FROM admin_users WHERE id=?", (uid,)).fetchone()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    db.execute("DELETE FROM admin_users WHERE id=?", (uid,))
+    db.commit()
+    log_action("DELETE_ADMIN_USER", uid, f"username:{user['username']}")
+    return jsonify({"success": True})
+
 @app.route("/health")
 def health():
     return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"DigiCert (https://timestamp.digicert.com)","tsa_status":"active"})

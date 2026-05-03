@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+  <!-- Change Password -->
+  <div class="panel">
+    <div class="panel-header"><div class="panel-title">CHANGE PASSWORD</div></div>
+    <div style="padding:20px;display:grid;gap:12px;">
+      <div class="alert" id="pwd-alert"></div>
+      <div class="field">
+        <label>CURRENT PASSWORD</label>
+        <input type="password" id="pwd-current" placeholder="Current password" />
+      </div>
+      <div class="field">
+        <label>NEW PASSWORD</label>
+        <input type="password" id="pwd-new" placeholder="Min. 8 characters" />
+      </div>
+      <div class="field">
+        <label>CONFIRM NEW PASSWORD</label>
+        <input type="password" id="pwd-confirm" placeholder="Repeat new password" />
+      </div>
+      <button class="btn btn-gold" onclick="changePassword()" style="margin-top:4px;">
+        Update Password →
+      </button>
+    </div>
+  </div>
+
+  <!-- Current Session -->
+  <div class="panel">
+    <div class="panel-header"><div class="panel-title">CURRENT SESSION</div></div>
+    <div style="padding:20px;display:grid;gap:12px;">
+      <div>
+        <div style="font-size:0.6rem;color:var(--muted);margin-bottom:4px;">LOGGED IN AS</div>
+        <div style="font-weight:600;font-size:1.1rem;">{{ username }}</div>
+      </div>
+      <div>
+        <div style="font-size:0.6rem;color:var(--muted);margin-bottom:4px;">ROLE</div>
+        <span class="badge {% if role == 'admin' %}bg{% else %}bm{% endif %}">{{ role|upper }}</span>
+      </div>
+      <div>
+        <div style="font-size:0.6rem;color:var(--muted);margin-bottom:4px;">SESSION TIMEOUT</div>
+        <div class="mono" style="font-size:0.75rem;">30 minutes inactivity</div>
+      </div>
+      <a href="/logout" class="btn btn-danger" style="text-align:center;margin-top:4px;">
+        Sign Out Securely →
+      </a>
+    </div>
+  </div>
+
+</div>
+
+{% if role == 'admin' %}
+<!-- Admin User Management -->
+<div class="panel" style="margin-top:16px;">
+  <div class="panel-header">
+    <div class="panel-title">ADMIN USERS</div>
+    <button class="btn btn-gold" onclick="document.getElementById('create-user-modal').classList.add('open')">+ New User</button>
+  </div>
+  <div class="alert" id="users-alert" style="margin:12px 18px 0;"></div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>USERNAME</th><th>ROLE</th><th>CREATED</th><th>LAST LOGIN</th><th>ACTIONS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td style="font-weight:600;">
+          {{ u.username }}
+          {% if u.username == username %}<span style="font-size:0.6rem;color:var(--muted);margin-left:6px;">(you)</span>{% endif %}
+        </td>
+        <td><span class="badge {% if u.role == 'admin' %}bg{% else %}bm{% endif %}">{{ u.role|upper }}</span></td>
+        <td class="mono" style="font-size:0.65rem;color:var(--muted);">{{ fmt_date(u.created_at) }}</td>
+        <td class="mono" style="font-size:0.65rem;color:var(--muted);">{{ fmt_date(u.last_login) if u.last_login else '—' }}</td>
+        <td>
+          {% if u.username != username %}
+          <button class="btn btn-danger" onclick="deleteUser('{{ u.id }}', '{{ u.username }}')">Delete</button>
+          {% else %}
+          <span style="font-size:0.65rem;color:var(--muted);">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal-overlay" id="create-user-modal">
+  <div class="modal">
+    <div class="modal-title">CREATE ADMIN USER</div>
+    <div class="alert" id="create-alert"></div>
+    <div style="display:grid;gap:12px;">
+      <div class="field">
+        <label>USERNAME</label>
+        <input type="text" id="new-username" placeholder="e.g. support_agent" />
+      </div>
+      <div class="field">
+        <label>PASSWORD</label>
+        <input type="password" id="new-password" placeholder="Min. 8 characters" />
+      </div>
+      <div class="field">
+        <label>ROLE</label>
+        <select id="new-role">
+          <option value="support">Support — read-only access</option>
+          <option value="admin">Admin — full access</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" onclick="document.getElementById('create-user-modal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-gold" onclick="createUser()">Create User →</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function changePassword() {
+    const current = document.getElementById('pwd-current').value;
+    const newPwd  = document.getElementById('pwd-new').value;
+    const confirm = document.getElementById('pwd-confirm').value;
+    const alert   = document.getElementById('pwd-alert');
+
+    const res  = await fetch('/settings/change-password', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({current_password: current, new_password: newPwd, confirm_password: confirm})
+    });
+    const data = await res.json();
+    alert.style.display = 'block';
+    if (data.success) {
+      alert.className = 'alert success';
+      alert.textContent = 'Password updated successfully.';
+      document.getElementById('pwd-current').value = '';
+      document.getElementById('pwd-new').value = '';
+      document.getElementById('pwd-confirm').value = '';
+    } else {
+      alert.className = 'alert error';
+      alert.textContent = data.error || 'Error updating password.';
+    }
+  }
+
+  async function createUser() {
+    const username = document.getElementById('new-username').value.trim();
+    const password = document.getElementById('new-password').value;
+    const role     = document.getElementById('new-role').value;
+    const alert    = document.getElementById('create-alert');
+
+    const res  = await fetch('/settings/create-user', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password, role})
+    });
+    const data = await res.json();
+    alert.style.display = 'block';
+    if (data.success) {
+      alert.className = 'alert success';
+      alert.textContent = 'User created successfully.';
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      alert.className = 'alert error';
+      alert.textContent = data.error || 'Error creating user.';
+    }
+  }
+
+  async function deleteUser(id, uname) {
+    if (!confirm('Delete user "' + uname + '"? This cannot be undone.')) return;
+    const res  = await fetch('/settings/delete-user/' + id, {method: 'POST'});
+    const data = await res.json();
+    const alert = document.getElementById('users-alert');
+    alert.style.display = 'block';
+    if (data.success) {
+      alert.className = 'alert success';
+      alert.textContent = 'User deleted.';
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      alert.className = 'alert error';
+      alert.textContent = data.error || 'Error.';
+    }
+  }
+
+  document.querySelectorAll('.modal-overlay').forEach(el =>
+    el.addEventListener('click', function(e) {
+      if (e.target === this) this.classList.remove('open');
+    })
+  );
+</script>
+{% endblock %}
