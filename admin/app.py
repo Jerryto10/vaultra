@@ -868,7 +868,9 @@ def health_check_page():
         tsa_ok=tsa_ok,
         total_clients=total_clients,
         total_receipts=total_receipts,
-        last_receipt_ago=last_receipt_ago or "—")
+        last_receipt_ago=last_receipt_ago or "—",
+        username=session.get("username"),
+        role=session.get("role"))
 
 
 @app.route("/api/verify/<rid>", methods=["GET", "OPTIONS"])
