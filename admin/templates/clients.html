@@ -49,7 +49,9 @@
         <td><span class="badge {% if c.plan == 'growth' %}bb{% elif c.plan == 'enterprise' %}bo{% else %}bm{% endif %}">{{ c.plan|upper }}</span></td>
         <td class="mono" style="font-size:0.66rem">{{ c.industry or '—' }}</td>
         <td class="mono" style="font-size:0.66rem">{{ c.country or '—' }}</td>
-        <td class="mono" style="font-size:0.62rem;color:var(--muted)">{{ c.api_key_prefix }}...</td>
+        <td class="mono" style="font-size:0.62rem;color:var(--muted)">
+          <span title="{{ c.api_key_prefix }}..." style="cursor:pointer;" onclick="copyPrefix('{{ c.api_key_prefix }}')">{{ c.api_key_prefix }}... 📋</span>
+        </td>
         <td class="mono">{{ c.month_count or 0 }} / {{ c.monthly_limit }}
               {% set pct = ((c.month_count or 0) / c.monthly_limit * 100)|round|int %}
               <div style="margin-top:4px;height:3px;background:var(--border);border-radius:2px;width:100px">
@@ -114,7 +116,8 @@
     </div>
     <div id="key-result" style="display:none">
       <div style="font-family:var(--mono);font-size:0.58rem;color:#CF6679;margin-bottom:6px;">⚠ COPY NOW — SHOWN ONCE ONLY:</div>
-      <div class="key-box" id="key-val"></div>
+      <div class="key-box" id="key-val" style="word-break:break-all;user-select:all;cursor:text;"></div>
+      <button class="btn btn-gold" onclick="copyApiKey()" id="copy-key-btn" style="margin-top:8px;width:100%;">Copy API Key</button>
     </div>
     <div class="modal-btns">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -257,6 +260,21 @@
   }
 
   document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');}));
+
+  function copyApiKey() {
+    const key = document.getElementById('key-val').textContent.trim();
+    navigator.clipboard.writeText(key).then(() => {
+      const btn = document.getElementById('copy-key-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy API Key', 3000);
+    });
+  }
+
+  function copyPrefix(prefix) {
+    navigator.clipboard.writeText(prefix).then(() => {
+      showPageAlert('success', 'API key prefix copied — note: this is only the prefix, not the full key.');
+    });
+  }
 
   function openEdit(id, company, email, plan, industry, country, limit, address, phone, website){
     document.getElementById('edit-client-id').value = id;
