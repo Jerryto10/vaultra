@@ -4,7 +4,8 @@
 > Cryptographically signed, immutable, auditor-ready evidence for every AI decision.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![PyPI version](https://img.shields.io/pypi/v/vaultra.svg)](https://pypi.org/project/vaultra/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![Website](https://img.shields.io/badge/website-vaultra.io-green.svg)](https://vaultra.io)
 [![RFC 3161](https://img.shields.io/badge/timestamp-RFC%203161%20%2F%20eIDAS-gold.svg)](https://vaultra.io)
 
@@ -111,20 +112,28 @@ print(result.summary())  # Signed, RFC 3161 timestamped, auditor-ready
 
 Vaultra exposes a REST API for SDK integration:
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/validate-key` | POST | Validate client API key |
-| `/api/receipt` | POST | Register a Compliance Receipt |
-| `/health` | GET | Service health check |
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/validate-key` | POST | API Key | Validate client API key + quota |
+| `/api/receipt` | POST | API Key | Register a Compliance Receipt |
+| `/api/verify/<id>` | GET | None | **Public** — verify any receipt |
+| `/api/report/<id>/csv` | GET | Session | Export receipts as CSV |
+| `/api/report/<id>/pdf` | GET | Session | Auditor-ready PDF report |
+| `/health` | GET | None | Service health check |
 
 ## Admin Panel
 
 Vaultra operators manage clients and receipts at **admin.vaultra.io**:
-- Create and manage client API keys
-- View all Compliance Receipts across clients
-- Archive clients (data preserved for audit trail)
-- Full audit log of all admin actions
-- Session timeout and secure logout
+- Create, edit, archive clients — plan, email, country, industry, address, phone, website
+- Rotate API keys instantly — old key revoked immediately
+- Monthly quota tracking with visual progress bar
+- Search and paginate receipts (50/page)
+- Export receipts as CSV or auditor-ready PDF per client
+- Receipt detail page with raw JSON and copy button
+- Public receipt verifier — vaultra.io/verify
+- Health Check dashboard — 7/7 compliance layers + infrastructure
+- User management — admin/support roles, password change
+- Full audit log, login rate limiting, security headers
 
 ---
 
