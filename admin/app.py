@@ -403,18 +403,23 @@ def clients():
     show_archived = request.args.get("archived") == "1"
     industry = request.args.get("industry","")
     country = request.args.get("country","")
+    search = request.args.get("search", "").strip()
     query = "SELECT * FROM clients WHERE archived=?"
     params = [1 if show_archived else 0]
     if industry:
         query += " AND industry=?"; params.append(industry)
     if country:
         query += " AND country=?"; params.append(country)
+    if search:
+        query += " AND (company_name LIKE ? OR email LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
     query += " ORDER BY created_at DESC"
     all_clients = db.execute(query, params).fetchall()
     industries = db.execute("SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL").fetchall()
     countries = db.execute("SELECT DISTINCT country FROM clients WHERE country IS NOT NULL").fetchall()
     return render_template("clients.html",
         clients=all_clients,
+        search=search,
         show_archived=show_archived,
         industries=industries,
         countries=countries,

@@ -5,7 +5,12 @@
 {% block content %}
 <div class="panel" style="margin-bottom:14px;">
   <div class="panel-header"><div class="panel-title">FILTERS</div></div>
-  <div style="padding:14px 18px;display:flex;gap:12px;align-items:center;">
+  <div style="padding:14px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <input type="text" id="search-input" value="{{ search or '' }}"
+      placeholder="Search receipt ID, agent, decision type..."
+      style="background:#151515;border:1px solid var(--border);border-radius:5px;padding:7px 14px;color:var(--text);font-family:var(--mono);font-size:0.68rem;outline:none;width:260px;"
+      onkeydown="if(event.key==='Enter')applySearch()" />
+    <button class="btn" onclick="applySearch()">Search</button>
     <select id="f-client" class="field" style="margin:0;width:auto;" onchange="applyFilter()">
       <option value="">All Clients</option>
       {% for c in clients %}

@@ -15,6 +15,11 @@
 <div class="panel" style="margin-bottom:14px;">
   <div class="panel-header"><div class="panel-title">FILTERS</div></div>
   <div style="padding:12px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <input type="text" id="client-search" value="{{ search or '' }}"
+      placeholder="Search company or email..."
+      style="background:#151515;border:1px solid var(--border);border-radius:5px;padding:7px 14px;color:var(--text);font-family:var(--mono);font-size:0.68rem;outline:none;width:220px;"
+      onkeydown="if(event.key==='Enter')applyClientSearch()" />
+    <button class="btn" onclick="applyClientSearch()">Search</button>
     <a href="/clients" class="btn {% if not show_archived %}btn-gold{% endif %}">Active</a>
     <a href="/clients?archived=1" class="btn {% if show_archived %}btn-gold{% endif %}">Archived</a>
     <select onchange="applyFilter('industry',this.value)" style="background:#151515;border:1px solid var(--border);border-radius:5px;padding:7px 12px;color:var(--text);font-family:var(--mono);font-size:0.68rem;outline:none;">
@@ -199,6 +204,13 @@
   function applyFilter(key, val){
     const url = new URL(window.location);
     if(val) url.searchParams.set(key,val); else url.searchParams.delete(key);
+    window.location.href = url.toString();
+  }
+
+  function applyClientSearch(){
+    const s = document.getElementById('client-search').value;
+    const url = new URL(window.location);
+    if(s) url.searchParams.set('search',s); else url.searchParams.delete('search');
     window.location.href = url.toString();
   }
   function openModal(){ document.getElementById('modal').classList.add('open'); }
