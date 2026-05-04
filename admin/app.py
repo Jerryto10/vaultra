@@ -1066,7 +1066,8 @@ def validate_key_endpoint():
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
     db = get_db()
     client = db.execute("""
-        SELECT id, company_name, plan, status, monthly_limit, receipt_count
+        SELECT id, company_name, plan, status, monthly_limit, receipt_count,
+               month_count, month_start
         FROM clients
         WHERE api_key_hash=? AND archived=0
     """, (key_hash,)).fetchone()
@@ -1088,9 +1089,10 @@ def validate_key_endpoint():
         "plan": client["plan"],
         "monthly_limit": client["monthly_limit"],
         "receipt_count": client["receipt_count"],
-        "month_count": client["month_count"] if "month_count" in client.keys() else 0,
-        "month_start": client["month_start"] if "month_start" in client.keys() else 0,
+        "month_count": client["month_count"] or 0,
+        "month_start": client["month_start"] or 0,
     })
+    return response
 
 # ── Rate limit buckets (in-memory per client) ─────────────────────────
 _rate_buckets = {}
