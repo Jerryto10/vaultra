@@ -18,3 +18,4 @@ env/
 .idea/
 .vscode/
 *.log
+demo_credit_agent.py
