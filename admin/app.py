@@ -1041,6 +1041,33 @@ def delete_admin_user(uid):
     log_action("DELETE_ADMIN_USER", uid, f"username:{user['username']}")
     return jsonify({"success": True})
 
+
+@app.route("/api/tsa-test")
+@login_required  
+def tsa_test():
+    """Test RFC 3161 timestamping from Railway server."""
+    import os, sys
+    sys.path.insert(0, '/app')
+    results = {}
+    
+    for tsa_name in ["digicert", "freetsa"]:
+        try:
+            os.environ["VAULTRA_TSA"] = tsa_name
+            # Re-import to pick up env var
+            import importlib
+            import vaultra.timestamper as ts_module
+            importlib.reload(ts_module)
+            result = ts_module.stamp("Railway TSA connectivity test")
+            results[tsa_name] = {
+                "success": result.success,
+                "timestamp": result.timestamp_utc if result.success else None,
+                "error": None
+            }
+        except Exception as e:
+            results[tsa_name] = {"success": False, "timestamp": None, "error": str(e)}
+    
+    return jsonify(results)
+
 @app.route("/health")
 def health():
     return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"DigiCert (https://timestamp.digicert.com)","tsa_status":"active"})
