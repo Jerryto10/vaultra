@@ -13,7 +13,7 @@ The token proves — to any auditor or regulator — that the receipt
 existed at a specific moment in time, and has not been modified since.
 
 Legal basis: eIDAS Regulation (EU) No 910/2014, Article 41
-TSA used: freetsa.org (production: DigiCert / Comodo)
+TSA used: Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)
 
 Workflow:
   receipt_hash → TSA request → signed .tsr token → stored in Ledger
@@ -31,12 +31,13 @@ from typing import Optional
 
 # ── TSA Endpoints ─────────────────────────────────────────────────────
 TSA_SERVERS = {
-    "freetsa":  "https://freetsa.org/tsr",        # Free, good for MVP
-    "digicert": "https://timestamp.digicert.com",  # Production
-    "comodo":   "http://timestamp.comodoca.com",   # Production backup
+    "sectigo":  "http://timestamp.sectigo.com/qualified",  # eIDAS QTSP — Production default
+    "freetsa":  "https://freetsa.org/tsr",                 # Free, dev/testing only
+    "digicert": "https://timestamp.digicert.com",          # Legacy
+    "comodo":   "http://timestamp.comodoca.com",           # Backup
 }
 
-DEFAULT_TSA = os.environ.get("VAULTRA_TSA", "digicert")
+DEFAULT_TSA = os.environ.get("VAULTRA_TSA", "sectigo")
 
 
 # ── Result dataclass ──────────────────────────────────────────────────
