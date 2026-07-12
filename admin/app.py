@@ -1042,57 +1042,6 @@ def delete_admin_user(uid):
     return jsonify({"success": True})
 
 
-@app.route("/api/tsa-test")
-def tsa_test():
-    """Test RFC 3161 timestamping from Railway server — public diagnostic."""
-    import requests as _req
-    results = {}
-
-    for tsa_name, tsa_url in [
-        ("sectigo", "http://timestamp.sectigo.com/qualified"),
-        ("freetsa", "https://freetsa.org/tsr"),
-        ("comodo", "http://timestamp.comodoca.com"),
-        ("digicert", "https://timestamp.digicert.com"),
-    ]:
-        # Test 1: basic HTTP reachability
-        try:
-            r = _req.get(tsa_url, timeout=8)
-            http_reachable = True
-            http_status = r.status_code
-        except Exception as e:
-            http_reachable = False
-            http_status = str(e)
-
-        # Test 2: actual RFC 3161 timestamp request
-        try:
-            import hashlib, base64, struct
-            # Minimal RFC 3161 request
-            content_hash = hashlib.sha256(b"Railway TSA test").digest()
-            # Simple DER-encoded TimeStampReq
-            from vaultra.timestamper import stamp
-            import os
-            os.environ["VAULTRA_TSA"] = tsa_name
-            import importlib, vaultra.timestamper as tsmod
-            importlib.reload(tsmod)
-            res = tsmod.stamp("Railway TSA connectivity test " + tsa_name)
-            tsa_success = res.success
-            tsa_timestamp = res.timestamp_utc if res.success else None
-            tsa_error = None if res.success else "stamp() returned success=False"
-        except Exception as e:
-            tsa_success = False
-            tsa_timestamp = None
-            tsa_error = str(e)[:200]
-
-        results[tsa_name] = {
-            "http_reachable": http_reachable,
-            "http_status": http_status,
-            "rfc3161_success": tsa_success,
-            "timestamp": tsa_timestamp,
-            "error": tsa_error,
-        }
-
-    return jsonify(results)
-
 @app.route("/health")
 def health():
     return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
