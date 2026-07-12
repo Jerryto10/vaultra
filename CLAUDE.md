@@ -16,7 +16,7 @@ Pricing: $299/mo (Starter) | $799/mo (Growth) | Custom (Enterprise)
 ## Architecture
 
 ### Infrastructure
-- **Frontend:** GitHub Pages → vaultra.io
+- **Frontend:** Hetzner (178.104.86.252) → vaultra.io (Nginx)
 - **Backend:** Hetzner CX12 (178.104.86.252) — Ubuntu 24.04, Nginx, Let's Encrypt
 - **Database:** SQLite at /data/vaultra_admin.db (persistent)
 - **DNS:** Cloudflare (SSL: Full Strict)
@@ -70,7 +70,7 @@ receipt = pipeline.process(input_data, agent_response, decision_type="LOAN_APPRO
 - DB_PATH=/data/vaultra_admin.db
 - SECRET_KEY=<from .env>
 - ADMIN_PASSWORD=ADMIN_PASSWORD_REDACTED
-- VAULTRA_TSA=sectigo (TODO: change from digicert)
+- VAULTRA_TSA=sectigo ✅
 
 ---
 
