@@ -851,7 +851,7 @@ def health_check_page():
     import requests as req
     tsa_ok = False
     try:
-        r = req.get("https://timestamp.digicert.com", timeout=5)
+        r = req.get("http://timestamp.sectigo.com/qualified", timeout=5)
         tsa_ok = r.status_code < 500
     except Exception:
         tsa_ok = False
@@ -1094,7 +1094,7 @@ def tsa_test():
 
 @app.route("/health")
 def health():
-    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"DigiCert (https://timestamp.digicert.com)","tsa_status":"active"})
+    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
 
 if __name__ == "__main__":
     init_db()
