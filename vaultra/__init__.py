@@ -50,7 +50,7 @@ from .backup_scheduler import start_backup_scheduler
 # Layer 7 — API key management
 from .api_keys import APIKeyManager, ClientRecord
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 __author__ = "Jerly Rojas"
 __license__ = "AGPL-3.0"
 
