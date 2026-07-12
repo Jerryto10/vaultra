@@ -754,7 +754,7 @@
         <div style="background:#0f0f10;border:1px solid #1e1e1e;border-radius:10px;padding:18px;">
           <div style="font-size:1.3rem;margin-bottom:8px;">⏱</div>
           <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px;">RFC 3161 Timestamped</div>
-          <div style="font-size:0.72rem;color:#6b6b6b;line-height:1.5;">DigiCert TSA under eIDAS Art. 41 — legally valid across the EU.</div>
+          <div style="font-size:0.72rem;color:#6b6b6b;line-height:1.5;">Sectigo eIDAS QTSP under eIDAS Art. 41 — legally valid across the EU.</div>
         </div>
         <div style="background:#0f0f10;border:1px solid #1e1e1e;border-radius:10px;padding:18px;">
           <div style="font-size:1.3rem;margin-bottom:8px;">🌐</div>
@@ -852,7 +852,7 @@
       if (d.valid) {
         var rfc = d.rfc3161_valid
           ? '<span style="color:#4caf7d;font-weight:600;">STAMPED — ' + (d.rfc3161_ts || '') + '</span>'
-          : '<span style="color:#c9a84c;">Pending DigiCert TSA</span>';
+          : '<span style="color:#c9a84c;">Pending Sectigo eIDAS TSA</span>';
         resultEl.innerHTML =
           '<div style="background:rgba(76,175,125,0.08);border:1px solid rgba(76,175,125,0.25);border-radius:8px;padding:14px 16px;">' +
           '<div style="color:#4caf7d;font-weight:600;margin-bottom:10px;">Receipt Valid</div>' +
