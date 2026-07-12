@@ -35,7 +35,7 @@ from typing import Optional
 # Vaultra backend URL
 VAULTRA_API_URL = os.environ.get(
     "VAULTRA_API_URL",
-    "https://vaultra-production-ec39.up.railway.app"
+    "https://admin.vaultra.io"
 )
 
 
