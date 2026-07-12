@@ -18,4 +18,5 @@ jobs:
             cd /home/vaultra/app
             git pull origin main
             systemctl restart vaultra
+            nginx -t && systemctl reload nginx
             echo "✅ Deployed successfully"
