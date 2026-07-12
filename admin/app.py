@@ -1049,9 +1049,10 @@ def tsa_test():
     results = {}
 
     for tsa_name, tsa_url in [
-        ("digicert", "https://timestamp.digicert.com"),
+        ("sectigo", "http://timestamp.sectigo.com/qualified"),
         ("freetsa", "https://freetsa.org/tsr"),
         ("comodo", "http://timestamp.comodoca.com"),
+        ("digicert", "https://timestamp.digicert.com"),
     ]:
         # Test 1: basic HTTP reachability
         try:
