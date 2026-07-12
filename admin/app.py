@@ -1044,7 +1044,7 @@ def delete_admin_user(uid):
 
 @app.route("/health")
 def health():
-    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.0","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
+    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.1","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
 
 if __name__ == "__main__":
     init_db()
