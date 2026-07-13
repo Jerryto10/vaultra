@@ -509,6 +509,38 @@ def rotate_key(cid):
     log_action("ROTATE_KEY", cid)
     return jsonify({"success":True,"api_key":new_key})
 
+@app.route("/api/portal/invite", methods=["POST"])
+@admin_required
+def portal_invite():
+    import requests as _req
+    data = request.get_json() or {}
+    client_id = data.get("client_id")
+    email = (data.get("email") or "").strip().lower()
+    if not client_id or not email:
+        return jsonify({"error": "client_id and email required"}), 400
+
+    db = get_db()
+    client = db.execute("SELECT id FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not client:
+        return jsonify({"error": "Client not found"}), 404
+
+    try:
+        resp = _req.post(
+            "http://127.0.0.1:8001/api/invite",
+            json={"client_id": client_id, "email": email},
+            headers={"X-Admin-Token": os.environ.get("PORTAL_ADMIN_TOKEN", "")},
+            timeout=10,
+        )
+    except _req.exceptions.RequestException as e:
+        return jsonify({"error": f"Portal unreachable: {e}"}), 502
+
+    if resp.status_code != 200:
+        return jsonify({"error": f"Portal returned {resp.status_code}"}), 502
+
+    result = resp.json()
+    log_action("PORTAL_INVITE", client_id, email)
+    return jsonify(result)
+
 @app.route("/clients/<cid>/notes", methods=["POST"])
 @admin_required
 def update_notes(cid):

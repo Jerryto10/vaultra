@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Receipts{% endblock %}
+{% block page_title %}Receipts{% endblock %}
+
+{% block content %}
+<div class="panel" style="padding:14px 18px;margin-bottom:16px;">
+  <form method="GET" action="/receipts" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+    <div class="field" style="flex:1;min-width:200px;margin-bottom:0;">
+      <label>SEARCH</label>
+      <input type="text" name="search" value="{{ search }}" placeholder="Receipt ID, agent, decision type..." />
+    </div>
+    <div class="field" style="min-width:160px;margin-bottom:0;">
+      <label>STATUS</label>
+      <select name="status">
+        <option value="" {% if not status_filter %}selected{% endif %}>All</option>
+        <option value="valid" {% if status_filter == 'valid' %}selected{% endif %}>Valid</option>
+        <option value="revoked" {% if status_filter == 'revoked' %}selected{% endif %}>Revoked</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-gold" style="height:36px;">FILTER</button>
+    {% if search or status_filter %}
+    <a href="/receipts" class="btn" style="height:36px;">CLEAR</a>
+    {% endif %}
+  </form>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">{{ total }} RECEIPT{{ 's' if total != 1 else '' }}</div>
+  </div>
+  {% if receipts %}
+  <table class="tbl">
+    <tr><th>Receipt ID</th><th>Agent</th><th>Decision</th><th>Regulation</th><th>Block</th><th>RFC 3161</th><th>Status</th><th>Date</th></tr>
+    {% for r in receipts %}
+    <tr onclick="window.location='/receipts/{{ r.id }}'" style="cursor:pointer;">
+      <td class="mono gold">{{ r.id[:12] }}</td>
+      <td>{{ r.agent_id }}</td>
+      <td><span class="badge {% if 'APPROVED' in (r.decision_type or '') %}bg{% elif 'REJECTED' in (r.decision_type or '') %}br{% else %}bo{% endif %}">{{ r.decision_type }}</span></td>
+      <td class="mono" style="font-size:0.62rem;">{{ r.regulation }}</td>
+      <td class="mono">#{{ r.block_number }}</td>
+      <td>{% if r.rfc3161_ts %}<span class="badge bg">STAMPED</span>{% else %}<span class="badge bm">PENDING</span>{% endif %}</td>
+      <td><span class="badge {% if r.status == 'valid' %}bg{% else %}br{% endif %}">{{ r.status|upper }}</span></td>
+      <td class="mono">{{ fmt_date(r.created_at) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:8px;justify-content:center;padding:14px;border-top:1px solid var(--border);">
+    {% for p in range(1, total_pages + 1) %}
+    <a href="/receipts?page={{ p }}{% if search %}&search={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+       class="btn {% if p == page %}btn-gold{% endif %}">{{ p }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">No receipts match your filters.</div>
+  {% endif %}
+</div>
+{% endblock %}

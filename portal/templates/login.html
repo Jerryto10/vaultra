@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vaultra Portal — Sign In</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/portal.css') }}" />
+</head>
+<body class="auth-body">
+  <div class="auth-wrap">
+    <div class="auth-logo">Vault<span>ra</span></div>
+    <div class="auth-logo-sub">CLIENT PORTAL — SIGN IN</div>
+    <div class="auth-card">
+      <div class="auth-card-title">ACCESS YOUR COMPLIANCE RECEIPTS</div>
+      {% if error %}
+      <div class="auth-error">{{ error }}</div>
+      {% endif %}
+      <form method="POST" action="/login">
+        <div class="field">
+          <label>EMAIL</label>
+          <input type="email" name="email" placeholder="you@company.com" autocomplete="email" required autofocus />
+        </div>
+        <div class="field">
+          <label>PASSWORD</label>
+          <input type="password" name="password" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="auth-btn">SIGN IN →</button>
+      </form>
+    </div>
+    <div class="auth-footer-note">© 2026 Vaultra — Confidential — hello@vaultra.io</div>
+  </div>
+</body>
+</html>

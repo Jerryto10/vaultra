@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vaultra Portal — {% block title %}Dashboard{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/portal.css') }}" />
+</head>
+<body class="app-body">
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">Vault<span>ra</span></div>
+    <div class="logo-sub">CLIENT PORTAL</div>
+    <div class="logo-role">{{ client.company_name if client else '' }}</div>
+  </div>
+  <div class="nav">
+    <div class="nav-section">OVERVIEW</div>
+    <a href="/dashboard" class="nav-item {% if request.path == '/dashboard' %}active{% endif %}"><span class="nav-icon">◈</span> Dashboard</a>
+    <a href="/receipts" class="nav-item {% if request.path.startswith('/receipts') %}active{% endif %}"><span class="nav-icon">◫</span> Receipts</a>
+    <a href="/reports" class="nav-item {% if request.path.startswith('/reports') %}active{% endif %}"><span class="nav-icon">▣</span> Reports</a>
+    <div class="nav-section">ACCOUNT</div>
+    <a href="/settings" class="nav-item {% if request.path == '/settings' %}active{% endif %}"><span class="nav-icon">⚙</span> Settings</a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="user-box">
+      <div class="user-top">
+        <div class="user-avatar">{{ cu.email[0]|upper if cu else '?' }}</div>
+        <div>
+          <div class="user-name">{{ cu.email if cu else '' }}</div>
+          <div class="user-role">client — secure session</div>
+        </div>
+      </div>
+      <a href="/logout" class="logout-btn" onclick="return confirm('Sign out of Vaultra Portal?')">
+        ↩ Sign Out
+      </a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">{% block page_title %}Dashboard{% endblock %}</div>
+    <div class="topbar-right">
+      <div class="status-pill"><div class="sdot"></div>SECURE SESSION</div>
+      {% block topbar_actions %}{% endblock %}
+    </div>
+  </div>
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

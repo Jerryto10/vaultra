@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vaultra Portal — Activate Account</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/portal.css') }}" />
+</head>
+<body class="auth-body">
+  <div class="auth-wrap">
+    <div class="auth-logo">Vault<span>ra</span></div>
+    <div class="auth-logo-sub">CLIENT PORTAL — ACCOUNT ACTIVATION</div>
+    <div class="auth-card">
+      {% if success %}
+        <div class="auth-success-icon">✓</div>
+        <div class="auth-card-title">ACCOUNT ACTIVATED</div>
+        <div class="auth-success-msg">Your password has been set. You can now sign in to access your compliance receipts.</div>
+        <a href="/login" class="auth-btn" style="display:block;text-align:center;text-decoration:none;">SIGN IN →</a>
+      {% elif not token %}
+        <div class="auth-error">{{ error }}</div>
+        <div class="auth-footer-note" style="margin-top:0;">Contact hello@vaultra.io if you believe this is a mistake.</div>
+      {% else %}
+        <div class="auth-card-title">SET YOUR PASSWORD</div>
+        {% if inv %}
+        <div class="auth-invite-email">{{ inv.email }}</div>
+        {% endif %}
+        {% if error %}
+        <div class="auth-error">{{ error }}</div>
+        {% endif %}
+        <form method="POST" action="/activate/{{ token }}">
+          <div class="field">
+            <label>NEW PASSWORD</label>
+            <input type="password" name="password" placeholder="••••••••" autocomplete="new-password" required minlength="8" />
+            <div class="auth-hint">Minimum 8 characters.</div>
+          </div>
+          <div class="field">
+            <label>CONFIRM PASSWORD</label>
+            <input type="password" name="confirm_password" placeholder="••••••••" autocomplete="new-password" required minlength="8" />
+          </div>
+          <button type="submit" class="auth-btn">ACTIVATE ACCOUNT →</button>
+        </form>
+      {% endif %}
+    </div>
+    <div class="auth-footer-note">© 2026 Vaultra — Confidential — hello@vaultra.io</div>
+  </div>
+</body>
+</html>

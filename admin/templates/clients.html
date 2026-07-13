@@ -82,6 +82,7 @@
               {% endif %}
             {% endif %}
             <button class="btn" onclick="openNotes('{{ c.id }}','{{ c.notes|default('')|replace("'","\\'")|replace('\n',' ') }}')">Notes</button>
+            <button class="btn" onclick="openInvite('{{ c.id }}','{{ c.email }}')">Invite</button>
             <a href="/receipts?client_id={{ c.id }}" class="btn">Receipts →</a>
             <a href="/api/report/{{ c.id }}/csv" class="btn" title="Download receipts as CSV">↓ CSV</a>
             <a href="/api/report/{{ c.id }}/pdf" class="btn" target="_blank" title="Auditor-ready compliance report">↗ PDF</a>
@@ -183,6 +184,25 @@
   </div>
 </div>
 
+<!-- INVITE MODAL -->
+<div class="modal-overlay" id="invite-modal">
+  <div class="modal">
+    <div class="modal-title">INVITE CLIENT TO PORTAL</div>
+    <div class="alert" id="invite-alert"></div>
+    <input type="hidden" id="invite-client-id" />
+    <div class="field"><label>EMAIL</label><input type="email" id="invite-email" placeholder="cto@company.com" /></div>
+    <div id="invite-result" style="display:none">
+      <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-bottom:6px;">INVITATION LINK — VALID 7 DAYS:</div>
+      <div class="key-box" id="invite-link-val" style="word-break:break-all;user-select:all;cursor:text;"></div>
+      <button class="btn btn-gold" onclick="copyInviteLink()" id="copy-invite-btn" style="margin-top:8px;width:100%;">Copy Link</button>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" onclick="closeInviteModal()">Close</button>
+      <button class="btn btn-gold" onclick="sendInvite()">Send Invite →</button>
+    </div>
+  </div>
+</div>
+
 <!-- NOTES MODAL -->
 <div class="modal-overlay" id="notes-modal">
   <div class="modal">
@@ -269,6 +289,40 @@
     const notes=document.getElementById('notes-text').value;
     const res=await fetch(`/clients/${id}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes})});
     if((await res.json()).success){ closeNotesModal(); showPageAlert('success','Notes saved.'); }
+  }
+
+  function openInvite(id, email){
+    document.getElementById('invite-client-id').value = id;
+    document.getElementById('invite-email').value = email;
+    document.getElementById('invite-result').style.display = 'none';
+    document.getElementById('invite-alert').style.display = 'none';
+    document.getElementById('invite-modal').classList.add('open');
+  }
+  function closeInviteModal(){ document.getElementById('invite-modal').classList.remove('open'); }
+  function showInviteAlert(type,msg){ const el=document.getElementById('invite-alert'); el.className='alert '+type; el.textContent=msg; el.style.display='block'; }
+
+  async function sendInvite(){
+    const id = document.getElementById('invite-client-id').value;
+    const email = document.getElementById('invite-email').value.trim();
+    if(!email){ showInviteAlert('error','Email required.'); return; }
+    const res = await fetch('/api/portal/invite', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:id, email})});
+    const data = await res.json();
+    if(data.success){
+      document.getElementById('invite-link-val').textContent = data.invitation_url;
+      document.getElementById('invite-result').style.display = 'block';
+      showInviteAlert('success','Invitation created — copy the link and send it to the client.');
+    } else {
+      showInviteAlert('error', data.error || 'Error creating invitation.');
+    }
+  }
+
+  function copyInviteLink() {
+    const link = document.getElementById('invite-link-val').textContent.trim();
+    navigator.clipboard.writeText(link).then(() => {
+      const btn = document.getElementById('copy-invite-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy Link', 3000);
+    });
   }
 
   document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');}));

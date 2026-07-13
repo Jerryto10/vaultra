@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Receipt {{ r.id[:12] }}{% endblock %}
+{% block page_title %}Receipt Detail{% endblock %}
+{% block topbar_actions %}
+<a href="/receipts" class="btn">← BACK TO RECEIPTS</a>
+{% endblock %}
+
+{% block content %}
+<div class="panel" style="padding:18px;margin-bottom:16px;">
+  <div class="mono gold" style="font-size:0.9rem;margin-bottom:4px;">{{ r.id }}</div>
+  <div class="mono" style="color:var(--muted);font-size:0.66rem;">Block #{{ r.block_number }} — {{ fmt_date(r.created_at) }}</div>
+</div>
+
+<div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
+  <div class="stat-card">
+    <div class="stat-label">DECISION</div>
+    <div style="margin-top:4px;"><span class="badge {% if 'APPROVED' in (r.decision_type or '') %}bg{% elif 'REJECTED' in (r.decision_type or '') %}br{% else %}bo{% endif %}" style="font-size:0.7rem;padding:5px 10px;">{{ r.decision_type }}</span></div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-label">RFC 3161 TIMESTAMP</div>
+    <div style="margin-top:4px;">
+      {% if r.rfc3161_ts %}<span class="badge bg" style="font-size:0.7rem;padding:5px 10px;">✅ STAMPED</span>{% else %}<span class="badge bm" style="font-size:0.7rem;padding:5px 10px;">PENDING</span>{% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">STATUS</div>
+    <div style="margin-top:4px;"><span class="badge {% if r.status == 'valid' %}bg{% else %}br{% endif %}" style="font-size:0.7rem;padding:5px 10px;">{{ r.status|upper }}</span></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">RECEIPT DETAILS</div></div>
+  <table class="tbl">
+    <tr><td class="mono" style="color:var(--muted);width:180px;">Agent ID</td><td>{{ r.agent_id }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Regulation</td><td>{{ r.regulation }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Input Hash</td><td class="mono" style="word-break:break-all;">{{ r.input_hash }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">RFC 3161 Token</td><td class="mono" style="word-break:break-all;font-size:0.62rem;">{{ r.rfc3161_ts or '—' }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Created</td><td class="mono">{{ fmt_date(r.created_at) }}</td></tr>
+  </table>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">DECISION CONTENT</div></div>
+  <div style="padding:16px 18px;font-family:var(--mono);font-size:0.76rem;line-height:1.6;white-space:pre-wrap;">{{ r.decision }}</div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">RAW JSON</div></div>
+  <pre style="padding:16px 18px;font-family:var(--mono);font-size:0.68rem;color:var(--text);overflow-x:auto;margin:0;">{{ receipt_json }}</pre>
+</div>
+{% endblock %}

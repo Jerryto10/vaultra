@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block page_title %}Reports{% endblock %}
+
+{% block content %}
+<div class="stats-row" style="grid-template-columns:repeat(2,1fr);">
+  <div class="stat-card">
+    <div class="stat-label">TOTAL RECEIPTS</div>
+    <div class="stat-value">{{ total }}</div>
+    <div class="stat-sub">available for export</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-label">RFC 3161 STAMPED</div>
+    <div class="stat-value up">{{ stamped }}</div>
+    <div class="stat-sub">{{ stamped }}/{{ total }} verified by Sectigo eIDAS QTSP</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">EXPORT COMPLIANCE REPORT</div></div>
+  <div style="padding:20px 18px;">
+    <div class="mono" style="font-size:0.78rem;color:var(--text);margin-bottom:18px;line-height:1.6;">
+      Download a full export of your compliance receipts for audit, regulator, or internal review purposes.
+      Reports include RFC 3161 timestamp status, regulation basis, and decision metadata for every receipt.
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="/reports/csv" class="btn btn-gold">⬇ DOWNLOAD CSV</a>
+      <a href="/reports/pdf" class="btn" target="_blank">⬇ DOWNLOAD REPORT (HTML)</a>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">COMPLIANCE BASIS</div></div>
+  <table class="tbl">
+    <tr><td class="mono" style="color:var(--muted);width:200px;">Timestamping Authority</td><td>Sectigo eIDAS QTSP</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Legal Basis</td><td>eIDAS Regulation (EU) No 910/2014, Art. 41</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Standard</td><td>RFC 3161 — Internet X.509 PKI Timestamp Protocol</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Regulation Coverage</td><td>EU AI Act Art. 12, GDPR Art. 22</td></tr>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">ACCOUNT INFORMATION</div></div>
+  <table class="tbl">
+    <tr><td class="mono" style="color:var(--muted);width:200px;">Email</td><td>{{ cu.email }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Company</td><td>{{ client.company_name }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Plan</td><td>{{ client.plan|upper }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Industry</td><td>{{ client.industry|upper }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Country</td><td>{{ client.country }}</td></tr>
+    <tr><td class="mono" style="color:var(--muted);">Last Login</td><td class="mono">{{ fmt_date(cu.last_login) }}</td></tr>
+  </table>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><div class="panel-title">CHANGE PASSWORD</div></div>
+  <div style="padding:18px;max-width:380px;">
+    <div id="pwd-alert" class="alert" style="display:none;"></div>
+    <form id="pwd-form">
+      <div class="field">
+        <label>CURRENT PASSWORD</label>
+        <input type="password" id="current_password" autocomplete="current-password" required />
+      </div>
+      <div class="field">
+        <label>NEW PASSWORD</label>
+        <input type="password" id="new_password" autocomplete="new-password" minlength="8" required />
+      </div>
+      <div class="field">
+        <label>CONFIRM NEW PASSWORD</label>
+        <input type="password" id="confirm_password" autocomplete="new-password" minlength="8" required />
+      </div>
+      <button type="submit" class="btn btn-gold">UPDATE PASSWORD</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('pwd-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const alertBox = document.getElementById('pwd-alert');
+  alertBox.style.display = 'none';
+  const body = {
+    current_password: document.getElementById('current_password').value,
+    new_password: document.getElementById('new_password').value,
+    confirm_password: document.getElementById('confirm_password').value,
+  };
+  try {
+    const res = await fetch('/settings/change-password', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alertBox.className = 'alert success';
+      alertBox.textContent = 'Password updated successfully.';
+      alertBox.style.display = 'block';
+      document.getElementById('pwd-form').reset();
+    } else {
+      alertBox.className = 'alert error';
+      alertBox.textContent = data.error || 'Something went wrong.';
+      alertBox.style.display = 'block';
+    }
+  } catch (err) {
+    alertBox.className = 'alert error';
+    alertBox.textContent = 'Network error. Please try again.';
+    alertBox.style.display = 'block';
+  }
+});
+</script>
+{% endblock %}

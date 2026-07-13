@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="panel" style="padding:16px 18px;margin-bottom:16px;">
+  <div class="mono" style="color:var(--muted);font-size:0.66rem;letter-spacing:0.04em;">
+    <span class="gold">{{ client.company_name }}</span> — {{ plan_label }}
+  </div>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">TOTAL RECEIPTS</div>
+    <div class="stat-value">{{ total }}</div>
+    <div class="stat-sub">all time</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-label">RFC 3161 STAMPED</div>
+    <div class="stat-value up">{{ stamped }}</div>
+    <div class="stat-sub">{{ stamped }}/{{ total }} verified</div>
+  </div>
+  <div class="stat-card blue">
+    <div class="stat-label">MONTHLY QUOTA</div>
+    <div class="stat-value {% if quota_pct >= 90 %}danger{% elif quota_pct >= 70 %}warn{% endif %}">{{ quota_pct }}%</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:{{ quota_pct }}%;{% if quota_pct >= 90 %}background:#CF6679;{% elif quota_pct >= 70 %}background:var(--gold);{% endif %}"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">PLAN</div>
+    <div class="stat-value" style="font-size:1.1rem;">{{ client.plan|upper }}</div>
+    <div class="stat-sub">{{ client.industry|upper }} · {{ client.country }}</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">RECENT RECEIPTS</div>
+    <a href="/receipts" class="panel-action">VIEW ALL →</a>
+  </div>
+  {% if recent %}
+  <table class="tbl">
+    <tr><th>Receipt ID</th><th>Agent</th><th>Decision</th><th>RFC 3161</th><th>Date</th></tr>
+    {% for r in recent %}
+    <tr onclick="window.location='/receipts/{{ r.id }}'" style="cursor:pointer;">
+      <td class="mono gold">{{ r.id[:12] }}</td>
+      <td>{{ r.agent_id }}</td>
+      <td><span class="badge {% if 'APPROVED' in (r.decision_type or '') %}bg{% elif 'REJECTED' in (r.decision_type or '') %}br{% else %}bo{% endif %}">{{ r.decision_type }}</span></td>
+      <td>{% if r.rfc3161_ts %}<span class="badge bg">STAMPED</span>{% else %}<span class="badge bm">PENDING</span>{% endif %}</td>
+      <td class="mono">{{ fmt_date(r.created_at) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty-state">No receipts yet. Receipts will appear here as your AI agents make decisions.</div>
+  {% endif %}
+</div>
+{% endblock %}
