@@ -25,7 +25,13 @@ from flask import (
 from flask_cors import CORS, cross_origin
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
+PORTAL_SECRET_KEY = os.environ.get("PORTAL_SECRET_KEY")
+if not PORTAL_SECRET_KEY:
+    raise RuntimeError(
+        "PORTAL_SECRET_KEY environment variable is not set. Refusing to start with an "
+        "insecure, randomly-generated key — set PORTAL_SECRET_KEY in the environment (.env)."
+    )
+app.secret_key = PORTAL_SECRET_KEY
 
 # ── CORS — portal is same-origin only; /health is the sole public endpoint ─
 CORS(app, origins=["https://app.vaultra.io"], supports_credentials=True)
@@ -57,7 +63,9 @@ def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db.execute("PRAGMA journal_mode=WAL")
+        g.db.execute("PRAGMA synchronous=NORMAL")
+        g.db.execute("PRAGMA foreign_keys=ON")
     return g.db
 
 @app.teardown_appcontext
@@ -69,6 +77,9 @@ def close_db(e=None):
 def init_portal_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("PRAGMA foreign_keys=ON")
     db.executescript("""
         CREATE TABLE IF NOT EXISTS client_users (
             id             TEXT PRIMARY KEY,
@@ -95,6 +106,17 @@ def init_portal_db():
             expires_at  REAL NOT NULL,
             used        INTEGER NOT NULL DEFAULT 0
         );
+
+        -- SQLite-backed rate limiting (shared across Gunicorn workers).
+        -- scope distinguishes portal vs admin-panel login attempts since both
+        -- apps point at the same DB file in production.
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope      TEXT NOT NULL DEFAULT 'admin',
+            ip         TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_login_attempts_scope_ip ON login_attempts(scope, ip, created_at);
     """)
     db.commit()
     db.close()
@@ -176,22 +198,52 @@ def fmt_date(ts):
 
 app.jinja_env.globals["fmt_date"] = fmt_date
 
-# ── Login rate limiting ───────────────────────────────────────────────────
-LOGIN_ATTEMPTS = {}
+# ── Login rate limiting — SQLite-backed (shared across Gunicorn workers) ──
 MAX_ATTEMPTS = 5
 LOGIN_WINDOW = 300
 
+def _rl_conn():
+    """Short-lived connection with its own transaction control, used only for
+    rate-limit bookkeeping so it never interferes with the request's main g.db
+    transaction. BEGIN IMMEDIATE serializes concurrent writers (other Gunicorn
+    worker processes included) at the SQLite file level."""
+    conn = sqlite3.connect(DB_PATH, timeout=5, isolation_level=None)
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
+
 def check_login_rate(ip):
-    now = time.time()
-    attempts = [t for t in LOGIN_ATTEMPTS.get(ip, []) if now - t < LOGIN_WINDOW]
-    LOGIN_ATTEMPTS[ip] = attempts
-    return len(attempts) < MAX_ATTEMPTS
+    conn = _rl_conn()
+    try:
+        now = time.time()
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "DELETE FROM login_attempts WHERE scope='portal' AND created_at < ?",
+            (now - LOGIN_WINDOW,)
+        )
+        count = conn.execute(
+            "SELECT COUNT(*) FROM login_attempts WHERE scope='portal' AND ip=?", (ip,)
+        ).fetchone()[0]
+        conn.execute("COMMIT")
+        return count < MAX_ATTEMPTS
+    finally:
+        conn.close()
 
 def record_attempt(ip):
-    LOGIN_ATTEMPTS.setdefault(ip, []).append(time.time())
+    conn = _rl_conn()
+    try:
+        conn.execute(
+            "INSERT INTO login_attempts (scope, ip, created_at) VALUES ('portal', ?, ?)",
+            (ip, time.time())
+        )
+    finally:
+        conn.close()
 
 def clear_attempts(ip):
-    LOGIN_ATTEMPTS.pop(ip, None)
+    conn = _rl_conn()
+    try:
+        conn.execute("DELETE FROM login_attempts WHERE scope='portal' AND ip=?", (ip,))
+    finally:
+        conn.close()
 
 # ── Routes ────────────────────────────────────────────────────────────────
 
@@ -576,6 +628,9 @@ def create_invitation():
 
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("PRAGMA foreign_keys=ON")
     token = secrets.token_urlsafe(32)
     inv_id = str(uuid.uuid4())
     db.execute(
@@ -591,6 +646,42 @@ def create_invitation():
         "invitation_url": f"{portal_url}/activate/{token}",
         "expires_in": "7 days"
     })
+
+# ── Error handlers — no stacktraces leaked to the client ──────────────────
+def _wants_json():
+    return request.path.startswith("/api/") or request.accept_mimetypes["application/json"] >= request.accept_mimetypes["text/html"]
+
+@app.errorhandler(404)
+def handle_404(e):
+    if _wants_json():
+        return jsonify({"error": "Not found"}), 404
+    return (
+        "<!DOCTYPE html><html><head><title>404 — Not Found</title>"
+        "<style>body{font-family:sans-serif;background:#0a0a0a;color:#eee;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+        ".box{text-align:center}h1{color:#c9a84c;font-size:48px;margin:0}"
+        "a{color:#c9a84c}</style></head><body><div class='box'>"
+        "<h1>404</h1><p>Page not found.</p><p><a href='/'>Return to dashboard</a></p>"
+        "</div></body></html>",
+        404,
+    )
+
+@app.errorhandler(500)
+def handle_500(e):
+    app.logger.error("Internal server error on %s: %s", request.path, e)
+    if _wants_json():
+        return jsonify({"error": "Internal server error"}), 500
+    return (
+        "<!DOCTYPE html><html><head><title>500 — Server Error</title>"
+        "<style>body{font-family:sans-serif;background:#0a0a0a;color:#eee;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+        ".box{text-align:center}h1{color:#c9a84c;font-size:48px;margin:0}"
+        "a{color:#c9a84c}</style></head><body><div class='box'>"
+        "<h1>500</h1><p>Something went wrong on our end. It's been logged.</p>"
+        "<p><a href='/'>Return to dashboard</a></p>"
+        "</div></body></html>",
+        500,
+    )
 
 if __name__ == "__main__":
     init_portal_db()

@@ -21,7 +21,6 @@ import secrets
 import sqlite3
 import time
 import uuid
-import threading
 import calendar
 try:
     import bcrypt
@@ -38,7 +37,13 @@ from flask import (
 from flask_cors import CORS, cross_origin
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY environment variable is not set. Refusing to start with an "
+        "insecure, randomly-generated key — set SECRET_KEY in the environment (.env)."
+    )
+app.secret_key = SECRET_KEY
 SESSION_TIMEOUT = 1800  # 30 minutes
 
 # ── CORS — admin panel is same-origin only; /health and /api/verify/*
@@ -67,26 +72,52 @@ def security_headers(response):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return response
 
-# ── Login rate limiting ───────────────────────────────────
-LOGIN_ATTEMPTS = {}   # {ip: [timestamp, ...]}
+# ── Login rate limiting — SQLite-backed (shared across Gunicorn workers) ──
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_WINDOW = 300    # 5 minutes
 
+def _rl_conn():
+    """Short-lived connection with its own transaction control, used only for
+    rate-limit bookkeeping so it never interferes with the request's main g.db
+    transaction. BEGIN IMMEDIATE serializes concurrent writers (other Gunicorn
+    worker processes included) at the SQLite file level."""
+    conn = sqlite3.connect(DB_PATH, timeout=5, isolation_level=None)
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
+
 def check_login_rate(ip):
-    now = time.time()
-    attempts = LOGIN_ATTEMPTS.get(ip, [])
-    attempts = [t for t in attempts if now - t < LOGIN_WINDOW]
-    LOGIN_ATTEMPTS[ip] = attempts
-    return len(attempts) < MAX_LOGIN_ATTEMPTS
+    conn = _rl_conn()
+    try:
+        now = time.time()
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "DELETE FROM login_attempts WHERE scope='admin' AND created_at < ?",
+            (now - LOGIN_WINDOW,)
+        )
+        count = conn.execute(
+            "SELECT COUNT(*) FROM login_attempts WHERE scope='admin' AND ip=?", (ip,)
+        ).fetchone()[0]
+        conn.execute("COMMIT")
+        return count < MAX_LOGIN_ATTEMPTS
+    finally:
+        conn.close()
 
 def record_login_attempt(ip):
-    now = time.time()
-    attempts = LOGIN_ATTEMPTS.get(ip, [])
-    attempts.append(now)
-    LOGIN_ATTEMPTS[ip] = attempts
+    conn = _rl_conn()
+    try:
+        conn.execute(
+            "INSERT INTO login_attempts (scope, ip, created_at) VALUES ('admin', ?, ?)",
+            (ip, time.time())
+        )
+    finally:
+        conn.close()
 
 def clear_login_attempts(ip):
-    LOGIN_ATTEMPTS.pop(ip, None)
+    conn = _rl_conn()
+    try:
+        conn.execute("DELETE FROM login_attempts WHERE scope='admin' AND ip=?", (ip,))
+    finally:
+        conn.close()
 
 # ── Database ───────────────────────────────────────────────
 DB_PATH = os.environ.get("DB_PATH", "vaultra_admin.db")
@@ -95,6 +126,9 @@ def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH, check_same_thread=False)
         g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA journal_mode=WAL")
+        g.db.execute("PRAGMA synchronous=NORMAL")
+        g.db.execute("PRAGMA foreign_keys=ON")
     return g.db
 
 @app.teardown_appcontext
@@ -116,6 +150,9 @@ app.jinja_env.globals['fmt_date'] = fmt_date
 
 def init_db():
     db = sqlite3.connect(DB_PATH)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("PRAGMA foreign_keys=ON")
     db.executescript("""
         CREATE TABLE IF NOT EXISTS admin_users (
             id            TEXT PRIMARY KEY,
@@ -179,6 +216,30 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_clients_status   ON clients(status);
         CREATE INDEX IF NOT EXISTS idx_audit_created    ON audit_log(created_at);
         CREATE INDEX IF NOT EXISTS idx_clients_archived ON clients(archived);
+
+        -- Performance indexes (audit follow-up)
+        CREATE INDEX IF NOT EXISTS idx_receipts_client_id      ON receipts(client_id);
+        CREATE INDEX IF NOT EXISTS idx_receipts_created_at     ON receipts(created_at);
+        CREATE INDEX IF NOT EXISTS idx_receipts_client_created ON receipts(client_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_receipts_status         ON receipts(status);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created       ON audit_log(created_at);
+
+        -- SQLite-backed rate limiting (shared across Gunicorn workers).
+        -- scope distinguishes admin-panel vs portal login attempts since both
+        -- apps point at the same DB file in production.
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope      TEXT NOT NULL DEFAULT 'admin',
+            ip         TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_login_attempts_scope_ip ON login_attempts(scope, ip, created_at);
+
+        CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+            client_id   TEXT PRIMARY KEY,
+            tokens      REAL NOT NULL,
+            last_refill REAL NOT NULL
+        );
     """)
     db.commit()
 
@@ -1105,6 +1166,42 @@ def delete_admin_user(uid):
 def health():
     return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.1","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
 
+# ── Error handlers — no stacktraces leaked to the client ──────────────────
+def _wants_json():
+    return request.path.startswith("/api/") or request.accept_mimetypes["application/json"] >= request.accept_mimetypes["text/html"]
+
+@app.errorhandler(404)
+def handle_404(e):
+    if _wants_json():
+        return jsonify({"error": "Not found"}), 404
+    return (
+        "<!DOCTYPE html><html><head><title>404 — Not Found</title>"
+        "<style>body{font-family:sans-serif;background:#0a0a0a;color:#eee;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+        ".box{text-align:center}h1{color:#c9a84c;font-size:48px;margin:0}"
+        "a{color:#c9a84c}</style></head><body><div class='box'>"
+        "<h1>404</h1><p>Page not found.</p><p><a href='/'>Return to dashboard</a></p>"
+        "</div></body></html>",
+        404,
+    )
+
+@app.errorhandler(500)
+def handle_500(e):
+    app.logger.error("Internal server error on %s: %s", request.path, e)
+    if _wants_json():
+        return jsonify({"error": "Internal server error"}), 500
+    return (
+        "<!DOCTYPE html><html><head><title>500 — Server Error</title>"
+        "<style>body{font-family:sans-serif;background:#0a0a0a;color:#eee;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+        ".box{text-align:center}h1{color:#c9a84c;font-size:48px;margin:0}"
+        "a{color:#c9a84c}</style></head><body><div class='box'>"
+        "<h1>500</h1><p>Something went wrong on our end. It's been logged.</p>"
+        "<p><a href='/'>Return to dashboard</a></p>"
+        "</div></body></html>",
+        500,
+    )
+
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 5000))
@@ -1159,10 +1256,10 @@ def validate_key_endpoint():
     })
     return response
 
-# ── Rate limit buckets (in-memory per client) ─────────────────────────
-_rate_buckets = {}
-_rate_lock = threading.Lock()
-
+# ── Rate limit buckets — SQLite-backed token bucket ───────────────────
+# Shared across Gunicorn worker processes via the DB file itself (each worker
+# is a separate process with its own memory, so an in-process dict/Lock only
+# rate-limits within one worker — see rate_limit_buckets table in init_db()).
 RATE_LIMITS = {
     "starter":    50,   # requests per minute
     "growth":     500,
@@ -1170,20 +1267,41 @@ RATE_LIMITS = {
 }
 
 def check_rate_limit(client_id: str, plan: str) -> bool:
-    """Token bucket rate limiter. Returns True if request is allowed."""
+    """SQLite-backed token bucket. Returns True if request is allowed."""
     limit = RATE_LIMITS.get(plan, 50)
     now = time.time()
-    with _rate_lock:
-        bucket = _rate_buckets.get(client_id, {"tokens": limit, "last": now})
-        elapsed = now - bucket["last"]
-        bucket["tokens"] = min(limit, bucket["tokens"] + elapsed * (limit / 60.0))
-        bucket["last"] = now
-        if bucket["tokens"] >= 1:
-            bucket["tokens"] -= 1
-            _rate_buckets[client_id] = bucket
+    conn = _rl_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT tokens, last_refill FROM rate_limit_buckets WHERE client_id=?",
+            (client_id,)
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO rate_limit_buckets (client_id, tokens, last_refill) VALUES (?, ?, ?)",
+                (client_id, limit - 1, now)
+            )
+            conn.execute("COMMIT")
             return True
-        _rate_buckets[client_id] = bucket
+        tokens, last_refill = row
+        elapsed = now - last_refill
+        tokens = min(limit, tokens + elapsed * (limit / 60.0))
+        if tokens >= 1:
+            tokens -= 1
+            conn.execute(
+                "UPDATE rate_limit_buckets SET tokens=?, last_refill=? WHERE client_id=?",
+                (tokens, now, client_id)
+            )
+            conn.execute("COMMIT")
+            return True
+        conn.execute(
+            "UPDATE rate_limit_buckets SET last_refill=? WHERE client_id=?", (now, client_id)
+        )
+        conn.execute("COMMIT")
         return False
+    finally:
+        conn.close()
 
 @app.route("/api/receipt", methods=["POST"])
 def receive_receipt():
