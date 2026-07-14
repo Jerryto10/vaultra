@@ -35,10 +35,16 @@ from flask import (
     Flask, render_template, request, jsonify,
     session, redirect, url_for, g
 )
+from flask_cors import CORS, cross_origin
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 SESSION_TIMEOUT = 1800  # 30 minutes
+
+# ── CORS — admin panel is same-origin only; /health and /api/verify/*
+# additionally serve the public landing page and portal ──────────────
+CORS(app, origins=["https://admin.vaultra.io"], supports_credentials=True)
+PUBLIC_ORIGINS = ["https://vaultra.io", "https://app.vaultra.io"]
 
 # ── Session security ─────────────────────────────────────
 
@@ -49,7 +55,16 @@ def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; "
+        "connect-src 'self' https://admin.vaultra.io"
+    )
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    if "admin_id" in session:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return response
 
 # ── Login rate limiting ───────────────────────────────────
@@ -306,6 +321,23 @@ def log_action(action, target=None, details=None):
           session.get("username","system"), session.get("role","admin"),
           action, target, details, request.remote_addr, time.time()))
     db.commit()
+
+def verify_client_ownership(db, receipt_id, client_id):
+    """Fetch a receipt only if it belongs to client_id; logs mismatches to the audit log.
+
+    Admin routes intentionally have cross-client visibility by design (an admin
+    reviews receipts across all clients), so this isn't wired into every admin
+    receipt query — it exists for parity with portal/app.py and for any future
+    admin role that should be scoped to a single client.
+    """
+    receipt = db.execute("SELECT * FROM receipts WHERE id=?", (receipt_id,)).fetchone()
+    if receipt is None:
+        return None
+    if receipt["client_id"] != client_id:
+        log_action("CROSS_CLIENT_ACCESS_ATTEMPT", receipt_id,
+                    f"expected client_id={client_id}, actual client_id={receipt['client_id']}")
+        return None
+    return receipt
 
 # ── Routes ─────────────────────────────────────────────────
 @app.route("/")
@@ -911,12 +943,8 @@ def health_check_page():
 
 
 @app.route("/api/verify/<rid>", methods=["GET", "OPTIONS"])
+@cross_origin(origins=PUBLIC_ORIGINS, methods=["GET"])
 def verify_receipt(rid):
-    if request.method == "OPTIONS":
-        response = app.make_default_options_response()
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET"
-        return response
     """Public receipt verification endpoint — no login required.
     Returns only public compliance data, no PII or client details.
     """
@@ -935,7 +963,6 @@ def verify_receipt(rid):
             "error": "Receipt not found",
             "receipt_id": rid
         })
-        resp.headers["Access-Control-Allow-Origin"] = "*"
         return resp, 404
 
     import json as _json
@@ -955,7 +982,6 @@ def verify_receipt(rid):
         "verified_by":   "Vaultra AI Agent Compliance Layer",
         "verify_url":    "https://vaultra.io/verify?id=" + receipt["id"],
     })
-    response.headers["Access-Control-Allow-Origin"] = "*"
     return response
 
 
@@ -1075,6 +1101,7 @@ def delete_admin_user(uid):
 
 
 @app.route("/health")
+@cross_origin(origins=PUBLIC_ORIGINS, methods=["GET"])
 def health():
     return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.1","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
 

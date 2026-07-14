@@ -5,6 +5,7 @@
 Flask==3.1.0
 gunicorn==23.0.0
 bcrypt==4.2.1               # Secure password hashing for admin panel
+flask-cors==6.0.5           # Origin-restricted CORS for admin/portal APIs
 
 # ── SDK Core ───────────────────────────────────────────
 cryptography==44.0.2        # Layer 1 — Ed25519 identity

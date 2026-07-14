@@ -22,9 +22,14 @@ from flask import (
     Flask, render_template, request, session,
     redirect, url_for, jsonify, g
 )
+from flask_cors import CORS, cross_origin
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
+
+# ── CORS — portal is same-origin only; /health is the sole public endpoint ─
+CORS(app, origins=["https://app.vaultra.io"], supports_credentials=True)
+PUBLIC_ORIGINS = ["https://vaultra.io", "https://app.vaultra.io"]
 
 # ── Security headers ──────────────────────────────────────────────────────
 @app.after_request
@@ -32,7 +37,17 @@ def security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; "
+        "connect-src 'self'"
+    )
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    if "client_user_id" in session:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return response
 
 # ── Database ──────────────────────────────────────────────────────────────
@@ -115,6 +130,41 @@ def get_current_client():
         (cu["client_id"],)
     ).fetchone()
     return cu, client
+
+def verify_client_ownership(db, receipt_id, client_id):
+    """Fetch a receipt only if it belongs to client_id; logs cross-client access attempts."""
+    receipt = db.execute("SELECT * FROM receipts WHERE id=?", (receipt_id,)).fetchone()
+    if receipt is None:
+        return None
+    if receipt["client_id"] != client_id:
+        app.logger.warning(
+            "SECURITY: client_id=%s attempted to access receipt %s belonging to client_id=%s "
+            "(ip=%s)", client_id, receipt_id, receipt["client_id"], request.remote_addr
+        )
+        return None
+    return receipt
+
+@app.before_request
+def log_cross_client_attempts():
+    """Middleware: logs any request whose <rid> URL segment belongs to a
+    different client than the current session. Purely a monitoring layer —
+    the routes themselves independently enforce access control via their
+    own WHERE client_id=? queries; this just flags probing attempts even if
+    a future route ever forgets to.
+    """
+    if not request.view_args:
+        return
+    rid = request.view_args.get("rid")
+    client_id = session.get("client_id")
+    if not rid or not client_id:
+        return
+    db = get_db()
+    receipt = db.execute("SELECT client_id FROM receipts WHERE id=?", (rid,)).fetchone()
+    if receipt and receipt["client_id"] != client_id:
+        app.logger.warning(
+            "SECURITY: client_id=%s attempted to access receipt %s belonging to client_id=%s "
+            "(ip=%s, path=%s)", client_id, rid, receipt["client_id"], request.remote_addr, request.path
+        )
 
 def fmt_date(ts):
     if not ts:
@@ -314,10 +364,7 @@ def receipts():
 def receipt_detail(rid):
     cu, client = get_current_client()
     db = get_db()
-    receipt = db.execute(
-        "SELECT * FROM receipts WHERE id=? AND client_id=?",
-        (rid, client["id"])
-    ).fetchone()
+    receipt = verify_client_ownership(db, rid, client["id"])
     if not receipt:
         return "Receipt not found", 404
 
@@ -508,6 +555,7 @@ def change_password():
     return jsonify({"success": True})
 
 @app.route("/health")
+@cross_origin(origins=PUBLIC_ORIGINS, methods=["GET"])
 def health():
     return jsonify({"status": "ok", "service": "vaultra-portal", "version": "1.0.0"})
 
