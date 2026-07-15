@@ -32,11 +32,22 @@ import requests
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .identity import AgentIdentity
+from .sanitizer import Sanitizer, Verdict
+from .ledger import ProvenanceLedger, EventType
+from .guardian import GuardianAgent, GuardVerdict
+from .human_gate import HumanGate, ApprovalStatus
+from .api_keys import KEY_PREFIX
+
 # Vaultra backend URL
 VAULTRA_API_URL = os.environ.get(
     "VAULTRA_API_URL",
     "https://admin.vaultra.io"
 )
+
+
+class ComplianceViolation(Exception):
+    """Raised when Layer 2 (Sanitizer) or Layer 4 (Guardian) hard-blocks a decision."""
 
 
 # ── Result dataclass ──────────────────────────────────────
@@ -54,6 +65,15 @@ class ComplianceReceipt:
     timestamp_utc:  float
     layers_passed:  int
     api_validated:  bool
+    identity_signature:   Optional[str] = None
+    identity_fingerprint: Optional[str] = None
+    sanitizer_verdict:    str = "unknown"
+    sanitizer_score:      float = 0.0
+    guardian_verdict:     str = "unknown"
+    guardian_score:       float = 0.0
+    ledger_block_hash:    Optional[str] = None
+    human_gate_status:    str = "unknown"
+    layer_status: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -69,6 +89,15 @@ class ComplianceReceipt:
             "timestamp_utc": self.timestamp_utc,
             "layers_passed": self.layers_passed,
             "api_validated": self.api_validated,
+            "identity_signature":   self.identity_signature,
+            "identity_fingerprint": self.identity_fingerprint,
+            "sanitizer_verdict":    self.sanitizer_verdict,
+            "sanitizer_score":      self.sanitizer_score,
+            "guardian_verdict":     self.guardian_verdict,
+            "guardian_score":       self.guardian_score,
+            "ledger_block_hash":    self.ledger_block_hash,
+            "human_gate_status":    self.human_gate_status,
+            "layer_status":         self.layer_status,
         }
 
     def summary(self) -> str:
@@ -83,6 +112,9 @@ class ComplianceReceipt:
             f"  RFC 3161:      {'Stamped' if self.rfc3161_ts else 'Pending'}\n"
             f"  Layers passed: {self.layers_passed}/7\n"
             f"  API validated: {'Yes' if self.api_validated else 'Offline mode'}\n"
+            f"  Sanitizer:     {self.sanitizer_verdict} (score={self.sanitizer_score:.3f})\n"
+            f"  Guardian:      {self.guardian_verdict} (score={self.guardian_score:.3f})\n"
+            f"  Human Gate:    {self.human_gate_status}\n"
         )
 
 
@@ -100,6 +132,7 @@ class VaultraPipeline:
         scope: str = "general",
         regulation: str = "EU AI Act",
         offline_mode: bool = False,
+        ledger_db_path: str = "vaultra_ledger.db",
     ):
         # Validate agent_id format (R-16)
         self._validate_agent_id(agent_id)
@@ -109,12 +142,30 @@ class VaultraPipeline:
         self.scope      = scope
         self.regulation = regulation
         self.offline    = offline_mode
+        self._explicit_offline = offline_mode
         self.client_id  = None
         self.plan       = None
         self._block_num = 1000 + int(time.time()) % 9000
 
         # Validate API key on initialization
         self._validate_api_key()
+
+        # Layer 1 — Ed25519 identity, one keypair per agent instance
+        self._identity = AgentIdentity(agent_id)
+
+        # Layer 2 — Injection detection (pattern + heuristic + ML ensemble)
+        self._sanitizer = Sanitizer()
+
+        # Layer 3 — Hash-chained audit ledger
+        self._ledger = ProvenanceLedger(db_path=ledger_db_path)
+
+        # Layer 4 — Output guardian; falls back to offline heuristics on its
+        # own if ANTHROPIC_API_KEY isn't set
+        self._guardian = GuardianAgent(prefer_online=True)
+
+        # Layer 5 — Human approval gate for irreversible actions
+        self._human_gate = HumanGate()
+
         print(f"[Vaultra] Pipeline initialized | Agent: {agent_id} | Scope: {scope}")
 
     def _validate_agent_id(self, agent_id: str):
@@ -232,6 +283,27 @@ class VaultraPipeline:
             print(f"[Vaultra] Timestamping warning: {e}")
         return None
 
+    def _record_ledger_event(
+        self, event_type, input_str, fingerprint, layer1_passed,
+        sanitize_result, decision_type, metadata=None,
+    ):
+        """Best-effort ledger write for a blocked decision. Never raises."""
+        try:
+            self._ledger.record(
+                event_type=event_type,
+                agent_id=self.agent_id,
+                agent_fingerprint=fingerprint or "unknown",
+                action=decision_type,
+                content=input_str,
+                layer1_passed=bool(layer1_passed),
+                layer2_score=sanitize_result.score if sanitize_result else 0.0,
+                layer2_verdict=sanitize_result.verdict.value if sanitize_result else "unknown",
+                layer2_triggers=sanitize_result.triggers if sanitize_result else [],
+                metadata=metadata or {},
+            )
+        except Exception as e:
+            print(f"[Vaultra] Layer 3 (Ledger) warning: could not record blocked event: {e}")
+
     def _send_receipt(self, receipt: ComplianceReceipt):
         """Send receipt metadata to Vaultra backend."""
         if self.offline:
@@ -272,33 +344,134 @@ class VaultraPipeline:
 
         Returns:
             ComplianceReceipt with all compliance metadata
+
+        Raises:
+            ComplianceViolation: Layer 2 detected a prompt injection in the
+                input, or Layer 4 (Guardian) blocked the agent's output.
         """
         input_hash = self._hash_input(input_data)
+        input_str  = str(input_data)
         self._block_num += 1
-        layers_passed = 0
         reg = regulation or self.regulation
+        layer_status = {}
 
-        # Layer 1 — Identity (simplified: key presence = identity)
-        if self.api_key and self.api_key.startswith("vaultra_sk_"):
-            layers_passed += 1
+        # ── Layer 1 — Identity: sign the decision payload ──
+        signable = {
+            "agent_id":      self.agent_id,
+            "input_hash":    input_hash,
+            "decision":      agent_response,
+            "decision_type": decision_type,
+            "block":         self._block_num,
+        }
+        identity_signature   = None
+        identity_fingerprint = None
+        try:
+            identity_signature   = self._identity.sign(signable).hex()
+            identity_fingerprint = self._identity.fingerprint()
+            layer_status["identity"] = True
+        except Exception as e:
+            print(f"[Vaultra] Layer 1 (Identity) warning: {e}")
+            layer_status["identity"] = False
 
-        # Layer 2 — Sanitizer (basic injection detection)
-        suspicious = ["ignore previous", "system prompt", "jailbreak", "bypass"]
-        input_str = str(input_data).lower()
-        if not any(s in input_str for s in suspicious):
-            layers_passed += 1
+        # ── Layer 2 — Sanitizer: block on confirmed prompt injection ──
+        sanitize_result = None
+        try:
+            sanitize_result = self._sanitizer.analyze(input_str)
+            layer_status["sanitizer"] = sanitize_result.verdict != Verdict.INJECTION
+        except Exception as e:
+            print(f"[Vaultra] Layer 2 (Sanitizer) warning: {e}")
+            layer_status["sanitizer"] = False
 
-        # Layer 3 — Ledger (block chaining)
-        layers_passed += 1
+        if sanitize_result is not None and sanitize_result.verdict == Verdict.INJECTION:
+            self._record_ledger_event(
+                EventType.INJECTION_ATTEMPT, input_str, identity_fingerprint,
+                layer_status["identity"], sanitize_result, decision_type,
+            )
+            raise ComplianceViolation(
+                f"BLOCKED — prompt injection detected in input "
+                f"(score={sanitize_result.score:.3f}, triggers={sanitize_result.triggers})"
+            )
 
-        # Layer 4 — Guardian (response anomaly — basic)
-        if agent_response and len(agent_response) > 0:
-            layers_passed += 1
+        # ── Layer 4 — Guardian: evaluate the agent's output ──
+        guardian_result = None
+        try:
+            guardian_result = self._guardian.evaluate(
+                agent_purpose=f"{self.agent_id} — {self.scope}",
+                agent_scope=[self.scope],
+                input_text=input_str,
+                output_text=agent_response,
+            )
+            layer_status["guardian"] = guardian_result.verdict != GuardVerdict.BLOCKED
+        except Exception as e:
+            print(f"[Vaultra] Layer 4 (Guardian) warning: {e}")
+            layer_status["guardian"] = False
 
-        # Layer 5 — Human Gate (not required for standard decisions)
-        layers_passed += 1
+        if guardian_result is not None and guardian_result.verdict == GuardVerdict.BLOCKED:
+            self._record_ledger_event(
+                EventType.MESSAGE_BLOCKED, input_str, identity_fingerprint,
+                layer_status["identity"], sanitize_result, decision_type,
+                metadata={"guardian": guardian_result.to_dict()},
+            )
+            raise ComplianceViolation(
+                f"BLOCKED — Guardian flagged output as unsafe "
+                f"(score={guardian_result.score:.3f}, risks={guardian_result.risks_detected})"
+            )
 
-        # Layer 6 — RFC 3161 Timestamp
+        # ── Layer 5 — Human Gate: only gate irreversible/destructive decisions ──
+        decision_upper = decision_type.upper()
+        if "TRANSFER" in decision_upper:
+            gate_action = "transfer_funds"
+        elif "DELETE" in decision_upper:
+            gate_action = "delete"
+        elif "IRREVERSIBLE" in decision_upper:
+            gate_action = "modify_config"
+        else:
+            gate_action = "analyze"
+
+        human_gate_status = None
+        try:
+            approval = self._human_gate.intercept(
+                agent_id=self.agent_id,
+                agent_name=self.agent_id,
+                action=gate_action,
+                context={"decision_type": decision_type, "decision": agent_response[:200]},
+                summary=f"{decision_type} decision by {self.agent_id}",
+                guardian_verdict=guardian_result.verdict.value if guardian_result else None,
+            )
+            human_gate_status = approval.status
+            layer_status["human_gate"] = approval.status in (
+                ApprovalStatus.BYPASSED, ApprovalStatus.APPROVED,
+            )
+        except Exception as e:
+            print(f"[Vaultra] Layer 5 (Human Gate) warning: {e}")
+            layer_status["human_gate"] = False
+
+        # ── Layer 3 — Ledger: record the decision with layer 1/2/4/5 context ──
+        ledger_block_hash = None
+        try:
+            entry = self._ledger.record(
+                event_type=EventType.MESSAGE_ALLOWED,
+                agent_id=self.agent_id,
+                agent_fingerprint=identity_fingerprint or "unknown",
+                action=decision_type,
+                content=input_str,
+                layer1_passed=layer_status["identity"],
+                layer2_score=sanitize_result.score if sanitize_result else 0.0,
+                layer2_verdict=sanitize_result.verdict.value if sanitize_result else "unknown",
+                layer2_triggers=sanitize_result.triggers if sanitize_result else [],
+                metadata={
+                    "guardian_verdict":  guardian_result.verdict.value if guardian_result else "unknown",
+                    "guardian_score":    guardian_result.score if guardian_result else 0.0,
+                    "human_gate_status": human_gate_status.value if human_gate_status else "unknown",
+                },
+            )
+            ledger_block_hash = entry.block_hash
+            layer_status["ledger"] = True
+        except Exception as e:
+            print(f"[Vaultra] Layer 3 (Ledger) warning: {e}")
+            layer_status["ledger"] = False
+
+        # ── Layer 6 — RFC 3161 Timestamp ──
         receipt_content = json.dumps({
             "agent_id":      self.agent_id,
             "input_hash":    input_hash,
@@ -309,11 +482,15 @@ class VaultraPipeline:
         }, sort_keys=True)
 
         rfc3161_ts = self._get_rfc3161_timestamp(receipt_content)
-        if rfc3161_ts:
-            layers_passed += 1
+        layer_status["timestamp"] = rfc3161_ts is not None
 
-        # Layer 7 — API Keys (validated at init)
-        layers_passed += 1
+        # ── Layer 7 — API Keys: reflects the real remote validation outcome ──
+        layer_status["api_keys"] = bool(
+            self.api_key and self.api_key.startswith(KEY_PREFIX)
+            and (self.client_id is not None or self._explicit_offline)
+        )
+
+        layers_passed = sum(1 for passed in layer_status.values() if passed)
 
         # Build receipt
         receipt = ComplianceReceipt(
@@ -329,6 +506,15 @@ class VaultraPipeline:
             timestamp_utc = time.time(),
             layers_passed = layers_passed,
             api_validated = not self.offline,
+            identity_signature   = identity_signature,
+            identity_fingerprint = identity_fingerprint,
+            sanitizer_verdict    = sanitize_result.verdict.value if sanitize_result else "unknown",
+            sanitizer_score      = sanitize_result.score if sanitize_result else 0.0,
+            guardian_verdict     = guardian_result.verdict.value if guardian_result else "unknown",
+            guardian_score       = guardian_result.score if guardian_result else 0.0,
+            ledger_block_hash    = ledger_block_hash,
+            human_gate_status    = human_gate_status.value if human_gate_status else "unknown",
+            layer_status         = layer_status,
         )
 
         # Send to Vaultra backend (non-blocking)
@@ -350,6 +536,7 @@ if __name__ == "__main__":
         api_key="vaultra_sk_v1_test",
         scope="credit_decisions",
         offline_mode=True,
+        ledger_db_path=":memory:",
     )
 
     result = pipeline.process(

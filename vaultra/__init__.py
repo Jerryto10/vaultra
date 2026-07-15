@@ -24,7 +24,7 @@ Quick start:
 """
 
 # Primary — developer-facing API (3-line integration)
-from .pipeline import VaultraPipeline, ComplianceReceipt
+from .pipeline import VaultraPipeline, ComplianceReceipt, ComplianceViolation
 
 # Layer 1 — Cryptographic identity
 from .identity import AgentIdentity
@@ -50,7 +50,7 @@ from .backup_scheduler import start_backup_scheduler
 # Layer 7 — API key management
 from .api_keys import APIKeyManager, ClientRecord
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 __author__ = "Jerly Rojas"
 __license__ = "AGPL-3.0"
 
@@ -58,6 +58,7 @@ __all__ = [
     # Primary
     "VaultraPipeline",
     "ComplianceReceipt",
+    "ComplianceViolation",
     # Layer 1
     "AgentIdentity",
     # Layer 2
