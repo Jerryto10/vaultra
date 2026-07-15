@@ -29,6 +29,7 @@
         <div class="auth-error">{{ error }}</div>
         {% endif %}
         <form method="POST" action="/activate/{{ token }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <div class="field">
             <label>NEW PASSWORD</label>
             <input type="password" name="password" placeholder="••••••••" autocomplete="new-password" required minlength="8" />

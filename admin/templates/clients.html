@@ -78,11 +78,11 @@
                 {% endif %}
                 <button class="btn" onclick="rotateKey('{{ c.id }}')">Rotate Key</button>
                 <button class="btn btn-danger" onclick="archiveClient('{{ c.id }}')">Archive</button>
-                <button class="btn" onclick="openEdit('{{ c.id }}','{{ c.company_name }}','{{ c.email }}','{{ c.plan }}','{{ c.industry or '' }}','{{ c.country or '' }}','{{ c.monthly_limit }}','{{ c.address or '' }}','{{ c.phone or '' }}','{{ c.website or '' }}')">Edit</button>
+                <button class="btn" onclick='openEdit({{ {"id": c.id, "company": c.company_name, "email": c.email, "plan": c.plan, "industry": c.industry or "", "country": c.country or "", "limit": c.monthly_limit, "address": c.address or "", "phone": c.phone or "", "website": c.website or ""}|tojson }})'>Edit</button>
               {% endif %}
             {% endif %}
-            <button class="btn" onclick="openNotes('{{ c.id }}','{{ c.notes|default('')|replace("'","\\'")|replace('\n',' ') }}')">Notes</button>
-            <button class="btn" onclick="openInvite('{{ c.id }}','{{ c.email }}')">Invite</button>
+            <button class="btn" onclick='openNotes({{ {"id": c.id, "notes": c.notes or ""}|tojson }})'>Notes</button>
+            <button class="btn" onclick='openInvite({{ {"id": c.id, "email": c.email}|tojson }})'>Invite</button>
             <a href="/receipts?client_id={{ c.id }}" class="btn">Receipts →</a>
             <a href="/api/report/{{ c.id }}/csv" class="btn" title="Download receipts as CSV">↓ CSV</a>
             <a href="/api/report/{{ c.id }}/pdf" class="btn" target="_blank" title="Auditor-ready compliance report">↗ PDF</a>
@@ -236,7 +236,7 @@
   function openModal(){ document.getElementById('modal').classList.add('open'); }
   function closeModal(){ document.getElementById('modal').classList.remove('open'); }
   function closeRotateModal(){ document.getElementById('rotate-modal').classList.remove('open'); location.reload(); }
-  function openNotes(id, notes){ document.getElementById('notes-client-id').value=id; document.getElementById('notes-text').value=notes; document.getElementById('notes-modal').classList.add('open'); }
+  function openNotes(c){ document.getElementById('notes-client-id').value=c.id; document.getElementById('notes-text').value=c.notes; document.getElementById('notes-modal').classList.add('open'); }
   function closeNotesModal(){ document.getElementById('notes-modal').classList.remove('open'); }
   function showPageAlert(type,msg){ const el=document.getElementById('page-alert'); el.className='alert '+type; el.textContent=msg; el.style.display='block'; setTimeout(()=>el.style.display='none',4000); }
   function showModalAlert(type,msg){ const el=document.getElementById('modal-alert'); el.className='alert '+type; el.textContent=msg; el.style.display='block'; }
@@ -291,9 +291,9 @@
     if((await res.json()).success){ closeNotesModal(); showPageAlert('success','Notes saved.'); }
   }
 
-  function openInvite(id, email){
-    document.getElementById('invite-client-id').value = id;
-    document.getElementById('invite-email').value = email;
+  function openInvite(c){
+    document.getElementById('invite-client-id').value = c.id;
+    document.getElementById('invite-email').value = c.email;
     document.getElementById('invite-result').style.display = 'none';
     document.getElementById('invite-alert').style.display = 'none';
     document.getElementById('invite-modal').classList.add('open');
@@ -342,17 +342,17 @@
     });
   }
 
-  function openEdit(id, company, email, plan, industry, country, limit, address, phone, website){
-    document.getElementById('edit-client-id').value = id;
-    document.getElementById('edit-email').value = email;
-    document.getElementById('edit-industry').value = industry || 'fintech';
-    document.getElementById('edit-country').value = country;
+  function openEdit(c){
+    document.getElementById('edit-client-id').value = c.id;
+    document.getElementById('edit-email').value = c.email;
+    document.getElementById('edit-industry').value = c.industry || 'fintech';
+    document.getElementById('edit-country').value = c.country;
     document.getElementById('edit-limit').value = '';
-    document.getElementById('edit-address').value = address || '';
-    document.getElementById('edit-phone').value = phone || '';
-    document.getElementById('edit-website').value = website || '';
+    document.getElementById('edit-address').value = c.address || '';
+    document.getElementById('edit-phone').value = c.phone || '';
+    document.getElementById('edit-website').value = c.website || '';
     const planSel = document.getElementById('edit-plan');
-    for(let o of planSel.options){ if(o.value===plan) o.selected=true; }
+    for(let o of planSel.options){ if(o.value===c.plan) o.selected=true; }
     document.getElementById('edit-modal').classList.add('open');
   }
 

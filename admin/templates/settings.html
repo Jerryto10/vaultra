@@ -78,7 +78,7 @@
         <td class="mono" style="font-size:0.65rem;color:var(--muted);">{{ fmt_date(u.last_login) if u.last_login else '—' }}</td>
         <td>
           {% if u.username != username %}
-          <button class="btn btn-danger" onclick="deleteUser('{{ u.id }}', '{{ u.username }}')">Delete</button>
+          <button class="btn btn-danger" onclick='deleteUser({{ {"id": u.id, "username": u.username}|tojson }})'>Delete</button>
           {% else %}
           <span style="font-size:0.65rem;color:var(--muted);">—</span>
           {% endif %}
@@ -171,9 +171,9 @@
     }
   }
 
-  async function deleteUser(id, uname) {
-    if (!confirm('Delete user "' + uname + '"? This cannot be undone.')) return;
-    const res  = await fetch('/settings/delete-user/' + id, {method: 'POST'});
+  async function deleteUser(u) {
+    if (!confirm('Delete user "' + u.username + '"? This cannot be undone.')) return;
+    const res  = await fetch('/settings/delete-user/' + u.id, {method: 'POST'});
     const data = await res.json();
     const alert = document.getElementById('users-alert');
     alert.style.display = 'block';

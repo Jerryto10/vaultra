@@ -68,8 +68,10 @@ receipt = pipeline.process(input_data, agent_response, decision_type="LOAN_APPRO
 
 ### Environment Variables (Hetzner)
 - DB_PATH=/data/vaultra_admin.db
-- SECRET_KEY=<from .env>
-- ADMIN_PASSWORD=ADMIN_PASSWORD_REDACTED
+- SECRET_KEY=<from .env — required, app refuses to start without it>
+- PORTAL_SECRET_KEY=<from .env — required, app refuses to start without it>
+- ADMIN_PASSWORD=<from .env — never commit the actual value>
+- SUPPORT_PASSWORD=<from .env — never commit the actual value>
 - VAULTRA_TSA=sectigo ✅
 
 ---

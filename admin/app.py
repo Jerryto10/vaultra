@@ -17,6 +17,8 @@ AGPL-3.0 License
 import os
 import json
 import hashlib
+import hmac
+import re
 import secrets
 import sqlite3
 import time
@@ -35,6 +37,7 @@ from flask import (
     session, redirect, url_for, g
 )
 from flask_cors import CORS, cross_origin
+from markupsafe import escape
 
 app = Flask(__name__)
 SECRET_KEY = os.environ.get("SECRET_KEY")
@@ -71,6 +74,42 @@ def security_headers(response):
     if "admin_id" in session:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return response
+
+# ── CSRF protection ────────────────────────────────────────────────────
+# Synchronizer-token pattern: one token per session, exposed to templates as
+# csrf_token(), checked on every mutating request against the session copy.
+def generate_csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+    return session["csrf_token"]
+
+app.jinja_env.globals["csrf_token"] = generate_csrf_token
+
+def verify_csrf_token():
+    expected = session.get("csrf_token")
+    if not expected:
+        return False
+    submitted = request.form.get("csrf_token")
+    if not submitted:
+        submitted = request.headers.get("X-CSRF-Token")
+    if not submitted and request.is_json:
+        body = request.get_json(silent=True) or {}
+        submitted = body.get("csrf_token")
+    if not submitted:
+        return False
+    return hmac.compare_digest(expected, submitted)
+
+# SDK-facing endpoints authenticated by API key (no browser session, no CSRF
+# token available or applicable) are exempt from CSRF enforcement.
+CSRF_EXEMPT_PATHS = {"/api/validate-key", "/api/receipt"}
+
+@app.before_request
+def enforce_csrf():
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        if request.path in CSRF_EXEMPT_PATHS:
+            return
+        if not verify_csrf_token():
+            return jsonify({"error": "Invalid or missing CSRF token"}), 403
 
 # ── Login rate limiting — SQLite-backed (shared across Gunicorn workers) ──
 MAX_LOGIN_ATTEMPTS = 5
@@ -147,6 +186,43 @@ def fmt_date(ts):
         return "—"
 
 app.jinja_env.globals['fmt_date'] = fmt_date
+
+# ── Input sanitization ──────────────────────────────────────────────────
+# Defense-in-depth for free-text fields stored in the DB: strips HTML tags
+# (in case any future code path ever renders these outside Jinja/autoescape,
+# as report_pdf's hand-built HTML already did) and control characters (which
+# could otherwise enable header/log injection via filenames or log lines),
+# then caps length so a single field can't bloat storage or downstream output.
+_HTML_TAG_RE = re.compile(r"<[^>]*>")
+
+def sanitize_text(value, max_length=255, allow_newlines=False):
+    if value is None:
+        return value
+    value = _HTML_TAG_RE.sub("", str(value))
+    if allow_newlines:
+        value = "".join(ch for ch in value if ch == "\n" or ch == "\t" or ch >= " ")
+    else:
+        value = "".join(ch for ch in value if ch >= " ")
+    return value.strip()[:max_length]
+
+def _resolve_seed_password(env_var_name, role_label):
+    """Read a seed-user password from the environment. If it's not set,
+    generate a random one-time password instead of falling back to a fixed,
+    hardcoded default — a hardcoded default is a real credential baked into
+    source control, not just a placeholder. The generated password is logged
+    once so an operator can retrieve it; this only runs on first-ever boot
+    (a pre-existing admin_users row makes the INSERT below a no-op)."""
+    pwd = os.environ.get(env_var_name)
+    if pwd:
+        return pwd
+    generated = secrets.token_urlsafe(18)
+    print(
+        f"[vaultra-admin] WARNING: {env_var_name} is not set. Generated a random "
+        f"one-time '{role_label}' password for initial setup: {generated} — "
+        f"set {env_var_name} in .env and change this password via the admin "
+        f"panel as soon as possible."
+    )
+    return generated
 
 def init_db():
     db = sqlite3.connect(DB_PATH)
@@ -264,7 +340,7 @@ def init_db():
     db.commit()
 
     # Create default users
-    admin_pwd = os.environ.get("ADMIN_PASSWORD", "ADMIN_PASSWORD_REDACTED")
+    admin_pwd = _resolve_seed_password("ADMIN_PASSWORD", "admin")
     if BCRYPT_AVAILABLE:
         admin_hash = bcrypt.hashpw(admin_pwd.encode(), bcrypt.gensalt()).decode()
     else:
@@ -274,7 +350,7 @@ def init_db():
             INSERT INTO admin_users (id, username, password_hash, role, created_at)
             VALUES (?, 'admin', ?, 'admin', ?)
         """, (str(uuid.uuid4()), admin_hash, time.time()))
-        support_pwd = os.environ.get("SUPPORT_PASSWORD", "support2026!")
+        support_pwd = _resolve_seed_password("SUPPORT_PASSWORD", "support")
         if BCRYPT_AVAILABLE:
             support_hash = bcrypt.hashpw(support_pwd.encode(), bcrypt.gensalt()).decode()
         else:
@@ -524,11 +600,11 @@ def clients():
 @admin_required
 def create_client():
     data = request.json
-    company = data.get("company_name","").strip()
-    email = data.get("email","").strip()
+    company = sanitize_text(data.get("company_name",""), max_length=200)
+    email = sanitize_text(data.get("email",""), max_length=254)
     plan = data.get("plan","starter")
-    industry = data.get("industry","fintech")
-    country = data.get("country","DE")
+    industry = sanitize_text(data.get("industry","fintech"), max_length=50)
+    country = sanitize_text(data.get("country","DE"), max_length=10)
     if not company or not email:
         return jsonify({"error": "Company name and email required"}), 400
     raw_key = f"vaultra_sk_v1_{secrets.token_hex(32)}"
@@ -637,7 +713,7 @@ def portal_invite():
 @app.route("/clients/<cid>/notes", methods=["POST"])
 @admin_required
 def update_notes(cid):
-    notes = request.json.get("notes","")
+    notes = sanitize_text(request.json.get("notes",""), max_length=2000, allow_newlines=True)
     db = get_db()
     db.execute("UPDATE clients SET notes=? WHERE id=?", (notes, cid))
     db.commit()
@@ -646,7 +722,7 @@ def update_notes(cid):
 
 
 @app.route("/clients/<cid>/edit", methods=["POST"])
-@login_required
+@admin_required
 def edit_client(cid):
     """Edit client details — plan, email, industry, country, monthly_limit."""
     data = request.get_json()
@@ -656,12 +732,12 @@ def edit_client(cid):
         return jsonify({"error": "Client not found"}), 404
 
     plan = data.get("plan", client["plan"])
-    email = data.get("email", client["email"])
-    industry = data.get("industry", client["industry"])
-    country = data.get("country", client["country"])
-    address = data.get("address", client["address"])
-    phone = data.get("phone", client["phone"])
-    website = data.get("website", client["website"])
+    email = sanitize_text(data.get("email", client["email"]), max_length=254)
+    industry = sanitize_text(data.get("industry", client["industry"]), max_length=50)
+    country = sanitize_text(data.get("country", client["country"]), max_length=10)
+    address = sanitize_text(data.get("address", client["address"]), max_length=300)
+    phone = sanitize_text(data.get("phone", client["phone"]), max_length=40)
+    website = sanitize_text(data.get("website", client["website"]), max_length=300)
 
     # Auto-set monthly_limit based on plan unless custom override
     plan_limits = {"starter": 100000, "growth": 1000000, "enterprise": 999999999}
@@ -867,10 +943,15 @@ def report_pdf(cid):
 
     log_action("EXPORT_PDF", cid, client["company_name"] + " — " + str(len(receipts)) + " receipts")
 
-    company_name = client["company_name"]
-    plan = client["plan"].upper()
-    industry = client["industry"] or "—"
-    country = client["country"] or "—"
+    # Escape everything below: company_name/industry/country/notes/address/
+    # phone/website are admin-editable free text, and agent_id/decision_type/
+    # regulation come from the public /api/receipt ingestion endpoint — this
+    # HTML is hand-built outside Jinja (no autoescaping), so it must be done
+    # explicitly here or these fields are a stored-XSS vector.
+    company_name = escape(client["company_name"])
+    plan = escape(client["plan"].upper())
+    industry = escape(client["industry"] or "—")
+    country = escape(client["country"] or "—")
     generated = fmt_date(time.time())
 
     css = """
@@ -923,11 +1004,11 @@ def report_pdf(cid):
     ]
 
     for r in receipts:
-        dt = (r["decision_type"] or "UNKNOWN").upper()
-        reg = (r["regulation"] or "—")
-        agent = (r["agent_id"] or "—")
-        status = (r["status"] or "valid").upper()
-        rid = (r["id"] or "")[:8]
+        dt = escape((r["decision_type"] or "UNKNOWN").upper())
+        reg = escape(r["regulation"] or "—")
+        agent = escape(r["agent_id"] or "—")
+        status = escape((r["status"] or "valid").upper())
+        rid = escape((r["id"] or "")[:8])
         block = str(r["block_number"] or 0)
         date = fmt_date(r["created_at"])
 
@@ -1340,64 +1421,102 @@ def receive_receipt():
             "retry_after_seconds": 5
         }), 429
 
-    # ── Monthly quota reset ─────────────────────────────────────────────
+    # Sanitize/cap the SDK-supplied fields — this is the public, API-key-only
+    # ingestion endpoint, and these values get rendered into hand-built HTML
+    # reports (see report_pdf) that don't get Jinja's autoescaping, so this
+    # is the primary stored-XSS surface in the whole app.
+    agent_id = sanitize_text(data.get("agent_id", "unknown"), max_length=100)
+    decision = sanitize_text(data.get("decision", ""), max_length=2000, allow_newlines=True)
+    decision_type = sanitize_text(data.get("decision_type", "UNKNOWN"), max_length=100)
+    input_hash = sanitize_text(data.get("input_hash", ""), max_length=128)
+    rfc3161_ts = sanitize_text(data.get("rfc3161_ts", ""), max_length=500)
+    regulation = sanitize_text(data.get("regulation", "EU AI Act"), max_length=100)
+    try:
+        block_number = int(data.get("block_number", 0))
+    except (TypeError, ValueError):
+        block_number = 0
+
     now = time.time()
-    from datetime import datetime, timezone
-    now_dt = datetime.now(timezone.utc)
-    month_start = client["month_start"] or 0
-    month_count = client["month_count"] or 0
-
-    if month_start > 0:
-        start_dt = datetime.fromtimestamp(month_start, tz=timezone.utc)
-        if now_dt.year != start_dt.year or now_dt.month != start_dt.month:
-            month_count = 0
-            month_start = now
-    else:
-        month_start = now
-
-    # ── Monthly limit check ─────────────────────────────────────────────
-    if month_count >= client["monthly_limit"]:
-        return jsonify({
-            "success": False,
-            "error": "Monthly decision limit reached",
-            "limit": client["monthly_limit"],
-            "plan": client["plan"],
-            "upgrade": "Contact hello@vaultra.io to upgrade your plan"
-        }), 429
-
-    # ── Store receipt ───────────────────────────────────────────────────
     rid = str(uuid.uuid4())
-    db.execute("""
-        INSERT INTO receipts
-        (id, client_id, agent_id, decision, decision_type, input_hash,
-         block_number, rfc3161_ts, regulation, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?)
-    """, (
-        rid, client["id"],
-        data.get("agent_id", "unknown"),
-        data.get("decision", ""),
-        data.get("decision_type", "UNKNOWN"),
-        data.get("input_hash", ""),
-        data.get("block_number", 0),
-        data.get("rfc3161_ts", ""),
-        data.get("regulation", "EU AI Act"),
-        now
-    ))
 
-    # ── Update counters ─────────────────────────────────────────────────
-    db.execute("""
-        UPDATE clients SET
-            receipt_count = receipt_count + 1,
-            month_count   = ?,
-            month_start   = ?,
-            last_seen     = ?
-        WHERE id = ?
-    """, (month_count + 1, month_start, now, client["id"]))
-    db.commit()
+    # ── Monthly quota: atomic check + increment ─────────────────────────
+    # Previously this read month_count, checked it against monthly_limit in
+    # Python, then wrote month_count+1 in a separate statement — two
+    # concurrent requests could both read the same count before either wrote,
+    # letting a client exceed its monthly_limit. Using a dedicated connection
+    # with an explicit BEGIN IMMEDIATE (which takes SQLite's write lock up
+    # front, serializing concurrent writers — including other Gunicorn
+    # workers, since it's the same DB file) and folding the limit check into
+    # the UPDATE's WHERE clause makes the whole check-then-increment atomic:
+    # the UPDATE can only succeed if month_count is still below the limit at
+    # the instant it runs.
+    conn = _rl_conn()
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("BEGIN IMMEDIATE")
+
+        row = conn.execute(
+            "SELECT month_start, month_count, monthly_limit FROM clients WHERE id=?",
+            (client["id"],)
+        ).fetchone()
+        month_start = row["month_start"] or 0
+        month_count = row["month_count"] or 0
+
+        from datetime import datetime, timezone
+        now_dt = datetime.now(timezone.utc)
+        if month_start > 0:
+            start_dt = datetime.fromtimestamp(month_start, tz=timezone.utc)
+            if now_dt.year != start_dt.year or now_dt.month != start_dt.month:
+                conn.execute(
+                    "UPDATE clients SET month_count=0, month_start=? WHERE id=?",
+                    (now, client["id"])
+                )
+        else:
+            conn.execute("UPDATE clients SET month_start=? WHERE id=?", (now, client["id"]))
+
+        cur = conn.execute(
+            """UPDATE clients
+               SET receipt_count = receipt_count + 1,
+                   month_count   = month_count + 1,
+                   last_seen     = ?
+               WHERE id = ? AND month_count < monthly_limit""",
+            (now, client["id"])
+        )
+        if cur.rowcount == 0:
+            conn.execute("COMMIT")
+            return jsonify({
+                "success": False,
+                "error": "Monthly decision limit reached",
+                "limit": row["monthly_limit"],
+                "plan": client["plan"],
+                "upgrade": "Contact hello@vaultra.io to upgrade your plan"
+            }), 429
+
+        conn.execute("""
+            INSERT INTO receipts
+            (id, client_id, agent_id, decision, decision_type, input_hash,
+             block_number, rfc3161_ts, regulation, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?)
+        """, (
+            rid, client["id"], agent_id, decision, decision_type,
+            input_hash, block_number, rfc3161_ts, regulation, now
+        ))
+
+        new_month_count = conn.execute(
+            "SELECT month_count FROM clients WHERE id=?", (client["id"],)
+        ).fetchone()[0]
+
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
 
     return jsonify({
         "success": True,
         "receipt_id": rid,
-        "month_count": month_count + 1,
+        "month_count": new_month_count,
         "monthly_limit": client["monthly_limit"]
     })

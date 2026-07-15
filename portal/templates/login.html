@@ -17,6 +17,7 @@
       <div class="auth-error">{{ error }}</div>
       {% endif %}
       <form method="POST" action="/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <div class="field">
           <label>EMAIL</label>
           <input type="email" name="email" placeholder="you@company.com" autocomplete="email" required autofocus />

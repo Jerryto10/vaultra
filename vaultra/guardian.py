@@ -42,6 +42,7 @@ Autor: AgentShield Project
 """
 
 import json
+import os
 import time
 import re
 import urllib.request
@@ -296,6 +297,11 @@ class OnlineGuard:
     API_URL = "https://api.anthropic.com/v1/messages"
     MODEL   = "claude-sonnet-4-20250514"
 
+    def __init__(self, api_key: Optional[str] = None):
+        # Bug fix: this class previously never sent an API key at all, so
+        # every call 401'd and silently fell back to OfflineGuard.
+        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+
     def evaluate(
         self,
         agent_purpose: str,
@@ -304,6 +310,9 @@ class OnlineGuard:
         output_text: str,
         timeout: int = 10,
     ) -> GuardianResult:
+
+        if not self.api_key:
+            raise ConnectionError("Guardian API unavailable: no API key configured")
 
         user_message = json.dumps({
             "agent_purpose": agent_purpose,
@@ -325,6 +334,7 @@ class OnlineGuard:
             headers={
                 "Content-Type":      "application/json",
                 "anthropic-version": "2023-06-01",
+                "x-api-key":         self.api_key,
             },
             method="POST",
         )
@@ -344,8 +354,9 @@ class OnlineGuard:
                     raw_response   = raw_text,
                 )
 
-        except (urllib.error.URLError, json.JSONDecodeError, KeyError) as e:
-            # API no disponible → señal para usar fallback
+        except (urllib.error.URLError, json.JSONDecodeError, KeyError, ValueError) as e:
+            # API unavailable, malformed response, or an out-of-enum verdict/
+            # non-numeric score from the model → signal caller to fall back.
             raise ConnectionError(f"Guardian API unavailable: {e}")
 
 
@@ -360,9 +371,17 @@ class GuardianAgent:
     Si no está disponible, usa el offline (heurístico).
     """
 
-    def __init__(self, prefer_online: bool = True):
-        self.online_guard  = OnlineGuard()
+    def __init__(self, prefer_online: bool = True, api_key: Optional[str] = None):
+        api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self.online_guard  = OnlineGuard(api_key=api_key)
         self.offline_guard = OfflineGuard()
+        if prefer_online and not api_key:
+            # Fail loud once at init instead of silently 401ing on every
+            # single evaluate() call and masking a config problem as a
+            # transient "API unavailable".
+            print("[Guardian] ⚠️  prefer_online=True but no ANTHROPIC_API_KEY is "
+                  "set — falling back to offline (heuristic) mode for all evaluations.")
+            prefer_online = False
         self.prefer_online = prefer_online
         self._stats = {"online": 0, "offline": 0, "total": 0}
         print(f"[Guardian] ✅ Inicializado | Modo preferido: {'online (LLM)' if prefer_online else 'offline (heurístico)'}")

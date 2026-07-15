@@ -35,6 +35,7 @@
       <div class="error">{{ error }}</div>
       {% endif %}
       <form method="POST" action="/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <div class="field">
           <label>USERNAME</label>
           <input type="text" name="username" placeholder="admin" autocomplete="username" required />

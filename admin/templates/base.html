@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vaultra Admin — {% block title %}Dashboard{% endblock %}</title>
+  <meta name="csrf-token" content="{{ csrf_token() }}" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -143,6 +144,25 @@
 </div>
 
 <script>
+  // Auto-attach the CSRF token to every same-origin mutating fetch() call so
+  // existing JS (archive/revoke/rotate-key/edit/new-client/etc.) keeps working
+  // without having to touch each call site individually.
+  (function() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init) {
+      init = init || {};
+      const method = (init.method || 'GET').toUpperCase();
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        init.headers = new Headers(init.headers || {});
+        if (!init.headers.has('X-CSRF-Token')) {
+          init.headers.set('X-CSRF-Token', csrfToken);
+        }
+      }
+      return originalFetch(input, init);
+    };
+  })();
+
   // Session countdown timer (30 min = 1800s)
   let seconds = 1800;
   const tdot = document.getElementById('tdot');

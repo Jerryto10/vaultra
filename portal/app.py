@@ -7,6 +7,7 @@ import re
 import time
 import uuid
 import hashlib
+import hmac
 import secrets
 import sqlite3
 from functools import wraps
@@ -23,6 +24,7 @@ from flask import (
     redirect, url_for, jsonify, g
 )
 from flask_cors import CORS, cross_origin
+from markupsafe import escape
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 PORTAL_SECRET_KEY = os.environ.get("PORTAL_SECRET_KEY")
@@ -197,6 +199,42 @@ def fmt_date(ts):
         return "—"
 
 app.jinja_env.globals["fmt_date"] = fmt_date
+
+# ── CSRF protection ────────────────────────────────────────────────────
+# Synchronizer-token pattern: one token per session, exposed to templates as
+# csrf_token(), checked on every mutating request against the session copy.
+def generate_csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+    return session["csrf_token"]
+
+app.jinja_env.globals["csrf_token"] = generate_csrf_token
+
+def verify_csrf_token():
+    expected = session.get("csrf_token")
+    if not expected:
+        return False
+    submitted = request.form.get("csrf_token")
+    if not submitted:
+        submitted = request.headers.get("X-CSRF-Token")
+    if not submitted and request.is_json:
+        body = request.get_json(silent=True) or {}
+        submitted = body.get("csrf_token")
+    if not submitted:
+        return False
+    return hmac.compare_digest(expected, submitted)
+
+# /api/invite is server-to-server (called by the admin panel, authenticated
+# via X-Admin-Token, no browser session) — exempt from CSRF enforcement.
+CSRF_EXEMPT_PATHS = {"/api/invite"}
+
+@app.before_request
+def enforce_csrf():
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        if request.path in CSRF_EXEMPT_PATHS:
+            return
+        if not verify_csrf_token():
+            return jsonify({"error": "Invalid or missing CSRF token"}), 403
 
 # ── Login rate limiting — SQLite-backed (shared across Gunicorn workers) ──
 MAX_ATTEMPTS = 5
@@ -516,14 +554,21 @@ def report_pdf():
     @media print{body{margin:20px}}
     """
 
+    # This HTML is hand-built outside Jinja (no autoescaping) — company_name is
+    # admin-editable free text, and agent_id/decision_type/regulation below
+    # come from the client's own /api/receipt submissions, so all of it must
+    # be explicitly escaped or this is a stored-XSS vector.
+    company_name = escape(client["company_name"])
+    plan_upper = escape(client["plan"].upper())
+
     parts = [
         "<!DOCTYPE html><html><head><meta charset='utf-8'>",
-        f"<title>Vaultra Compliance Report — {client['company_name']}</title>",
+        f"<title>Vaultra Compliance Report — {company_name}</title>",
         f"<style>{css}</style></head><body>",
         "<h1>Vaultra — Compliance Receipt Report</h1>",
         "<div class='meta'>",
-        f"<p><b>Client:</b> {client['company_name']}</p>",
-        f"<p><b>Plan:</b> {client['plan'].upper()} | <b>Regulation:</b> EU AI Act Art. 12 + GDPR Art. 22</p>",
+        f"<p><b>Client:</b> {company_name}</p>",
+        f"<p><b>Plan:</b> {plan_upper} | <b>Regulation:</b> EU AI Act Art. 12 + GDPR Art. 22</p>",
         f"<p><b>Generated:</b> {fmt_date(time.time())} | <b>Sectigo eIDAS QTSP</b> — RFC 3161 timestamps</p>",
         f"<p><b>Total:</b> {len(receipts)} receipts | <b>Stamped:</b> {stamped}/{len(receipts)}</p>",
         "</div>",
@@ -539,18 +584,23 @@ def report_pdf():
     ]
 
     for r in receipts:
-        dt = (r["decision_type"] or "UNKNOWN").upper()
-        bc = "approved" if "APPROVED" in dt else ("rejected" if "REJECTED" in dt else "review")
+        dt_raw = (r["decision_type"] or "UNKNOWN").upper()
+        bc = "approved" if "APPROVED" in dt_raw else ("rejected" if "REJECTED" in dt_raw else "review")
+        dt = escape(dt_raw)
+        rid = escape((r["id"] or "")[:8])
+        agent = escape(r["agent_id"] or "")
+        regulation = escape(r["regulation"] or "")
+        status = escape((r["status"] or "").upper())
         rfc_html = '<span class="badge stamped">STAMPED</span>' if r["rfc3161_ts"] else '<span class="badge pending">PENDING</span>'
         parts.append(
             "<tr>"
-            + f'<td style="color:#c9a84c;font-size:8px">{(r["id"] or "")[:8]}</td>'
-            + f"<td>{r['agent_id'] or ''}</td>"
+            + f'<td style="color:#c9a84c;font-size:8px">{rid}</td>'
+            + f"<td>{agent}</td>"
             + f'<td><span class="badge {bc}">{dt}</span></td>'
-            + f'<td style="font-size:8px">{r["regulation"] or ""}</td>'
+            + f'<td style="font-size:8px">{regulation}</td>'
             + f"<td>#{r['block_number']}</td>"
             + f"<td>{rfc_html}</td>"
-            + f"<td>{(r['status'] or '').upper()}</td>"
+            + f"<td>{status}</td>"
             + f"<td style='white-space:nowrap'>{fmt_date(r['created_at'])}</td>"
             + "</tr>"
         )
