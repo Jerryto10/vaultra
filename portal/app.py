@@ -659,7 +659,7 @@ def change_password():
 @app.route("/health")
 @cross_origin(origins=PUBLIC_ORIGINS, methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "service": "vaultra-portal", "version": "1.0.0"})
+    return jsonify({"status": "ok", "service": "vaultra-portal", "version": "1.0.1"})
 
 # ── Admin API — create invitation (called from admin panel) ───────────────
 @app.route("/api/invite", methods=["POST"])

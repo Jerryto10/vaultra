@@ -1245,7 +1245,7 @@ def delete_admin_user(uid):
 @app.route("/health")
 @cross_origin(origins=PUBLIC_ORIGINS, methods=["GET"])
 def health():
-    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.1","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
+    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.2","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
 
 # ── Error handlers — no stacktraces leaked to the client ──────────────────
 def _wants_json():
