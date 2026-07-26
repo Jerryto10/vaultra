@@ -75,6 +75,7 @@ receipt = pipeline.process(input_data, agent_response, decision_type="LOAN_APPRO
 - **Reports:** PDF + CSV per client
 - **Verifier:** Public API at /api/verify/<rid> (CORS enabled)
 - **Invite button:** generates client activation link (7-day token) for the portal
+- **Internal test client:** "Vaultra Internal - KYC Test Agent" (`kyc-test@vaultra.io`, plan starter) — created directly in the DB on Jul 26, 2026 for the KYC E2E test; safe to keep or archive/revoke via the Clients page
 
 ## Client Portal (app.vaultra.io) — functional, built autonomously via CLAUDE.md
 - **Framework:** Flask + Gunicorn, systemd `vaultra-portal`
@@ -124,6 +125,7 @@ Done via Claude Code plugins: security-guidance, code-review, supabase, playwrig
 - Audit log capped at 200 rows, no pagination
 - Stale "DigiCert" branding in some admin templates and `health_check.html` (references retired infra)
 - No Playwright E2E tests yet
+- **Human Gate approval flow is ephemeral** — `HumanGate.decide(token, ...)` only resolves a pending request held in that same Python process's in-memory `_pending` dict. Once the agent process exits, the token is gone — there's no durable admin.vaultra.io view to list/approve/reject pending DELETE/TRANSFER/IRREVERSIBLE requests after the fact. Found during the Jul 26 KYC E2E test (see below). Needs a real design: persist pending approvals to the DB, add an admin route to list/decide them.
 
 ---
 
@@ -179,10 +181,11 @@ Workflow: user gives instructions in chat → instructions get transcribed as a 
 
 ## Pending Tasks (Priority Order)
 
-### 🟡 In progress
-1. Real end-to-end test with an external AI agent (recommended: a simple KYC agent, different from the already-used `demo_credit_agent`)
+### ✅ Done (Jul 26, 2026)
+- Real end-to-end test with an external AI agent — built `demo_kyc_agent.py` (gitignored, distinct from `demo_credit_agent.py`), created a real test client + API key in the production DB, ran 5 cases against `admin.vaultra.io` live: normal approve, sanctions/watchlist reject, low document quality review, a genuine prompt-injection attempt (correctly **blocked by Layer 2**, no receipt generated, logged as `INJECTION_ATTEMPT`), and a GDPR Art. 17 erasure request (correctly **blocked by Layer 5 Human Gate** as a CRITICAL `DELETE` action, receipt generated in `pending` state at 6/7 layers). All 4 non-blocked receipts confirmed stamped (RFC 3161) and `status=valid` in the production `receipts` table. Surfaced one product gap — see "Human Gate approval flow is ephemeral" in Security findings above.
 
 ### 🟡 Important — next session
+1. Design + build a durable Human Gate approval flow (persist pending DELETE/TRANSFER/IRREVERSIBLE requests to DB, add admin.vaultra.io view to approve/reject) — gap found during the KYC E2E test
 2. Stripe — automated payments and subscriptions
 3. Resend — transactional email (invitations, quota alerts)
 4. Contact rUv (creator of Ruflo, github.com/ruvnet/ruflo, 64K stars) in English to explore an official `ruflo-vaultra` plugin — model: free/open-source plugin that connects to Vaultra's paid backend
