@@ -9,6 +9,8 @@ dist/
 build/
 .eggs/
 .env
+.env.*
+*.save
 .venv
 venv/
 env/
@@ -19,3 +21,4 @@ env/
 .vscode/
 *.log
 demo_credit_agent.py
+demo_kyc_agent.py

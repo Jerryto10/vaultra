@@ -114,7 +114,7 @@ Done via Claude Code plugins: security-guidance, code-review, supabase, playwrig
 
 ### Resolved (Jul 26, 2026)
 - ✅ GitHub PAT rotated (fine-grained, `Contents: Read and write`), stored via macOS Keychain credential helper — no more plaintext token in remote URL
-- ✅ Git history scrubbed with `git-filter-repo` — old `ADMIN_PASSWORD=vaultra2026!` (exposed in a public repo) removed from all commits, force-pushed, Hetzner clone resynced via `fetch` + `reset --hard`
+- ✅ Git history scrubbed with `git-filter-repo` — the old rotated admin password (exposed in a public repo) removed from all commits, force-pushed, Hetzner clone resynced via `fetch` + `reset --hard`
 
 ### Non-critical findings (medium/low priority, not yet fixed)
 - Ledger hash chain has no lock under concurrency (possible fork under high load)
