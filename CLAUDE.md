@@ -34,7 +34,7 @@ Pricing: $299/mo (Starter, 100K decisions) | $799/mo (Growth, 1M decisions) | Cu
 ### Repository
 - GitHub: github.com/Jerryto10/vaultra
 - Branch: main (auto-deploy via GitHub Actions — live)
-- GitHub PAT: rotation was requested — **verify with `git push origin main --dry-run` before assuming it's done**
+- GitHub PAT: rotated Jul 26, 2026 (fine-grained, `Contents: Read and write`), stored via macOS Keychain credential helper
 
 ---
 
@@ -111,9 +111,9 @@ Done via Claude Code plugins: security-guidance, code-review, supabase, playwrig
 - ✅ Hardcoded passwords removed from `init_db()` and this file
 - ✅ Admin password rotated
 
-### Pending manual verification
-- ⚠️ Confirm GitHub PAT rotation didn't break push (`git push origin main --dry-run`)
-- ⚠️ Decide whether to scrub git history (old password was once exposed in a public repo in this file)
+### Resolved (Jul 26, 2026)
+- ✅ GitHub PAT rotated (fine-grained, `Contents: Read and write`), stored via macOS Keychain credential helper — no more plaintext token in remote URL
+- ✅ Git history scrubbed with `git-filter-repo` — old `ADMIN_PASSWORD=vaultra2026!` (exposed in a public repo) removed from all commits, force-pushed, Hetzner clone resynced via `fetch` + `reset --hard`
 
 ### Non-critical findings (medium/low priority, not yet fixed)
 - Ledger hash chain has no lock under concurrency (possible fork under high load)
@@ -179,21 +179,19 @@ Workflow: user gives instructions in chat → instructions get transcribed as a 
 
 ## Pending Tasks (Priority Order)
 
-### 🔴 Immediate
-1. Confirm GitHub PAT rotation succeeded (push still works)
-2. Decide on git history cleanup (old exposed password)
+### 🟡 In progress
+1. Real end-to-end test with an external AI agent (recommended: a simple KYC agent, different from the already-used `demo_credit_agent`)
 
 ### 🟡 Important — next session
-3. Stripe — automated payments and subscriptions
-4. Resend — transactional email (invitations, quota alerts)
-5. Real end-to-end test with an external AI agent (recommended: a simple KYC agent, different from the already-used `demo_credit_agent`)
-6. Contact rUv (creator of Ruflo, github.com/ruvnet/ruflo, 64K stars) in English to explore an official `ruflo-vaultra` plugin — model: free/open-source plugin that connects to Vaultra's paid backend
+2. Stripe — automated payments and subscriptions
+3. Resend — transactional email (invitations, quota alerts)
+4. Contact rUv (creator of Ruflo, github.com/ruvnet/ruflo, 64K stars) in English to explore an official `ruflo-vaultra` plugin — model: free/open-source plugin that connects to Vaultra's paid backend
 
 ### 🟢 Legal / Commercial
-7. Letter to employer (Nebentätigkeit §2 authorization) — not expected to be a problem
-8. Gewerbe registration (Finanzamt Rheine)
-9. Organize a clean delivery folder with all final document versions
-10. First outreach — 6 messages drafted (CTO/CCO/CEO × EN/ES), still need the Apollo.io list
+5. Letter to employer (Nebentätigkeit §2 authorization) — not expected to be a problem
+6. Gewerbe registration (Finanzamt Rheine)
+7. Organize a clean delivery folder with all final document versions
+8. First outreach — 6 messages drafted (CTO/CCO/CEO × EN/ES), still need the Apollo.io list
 
 ### 🟢 Security audit — non-critical (see above section for details)
 
@@ -226,4 +224,4 @@ Workflow: user gives instructions in chat → instructions get transcribed as a 
 - Anthropic API keys: rotate immediately if exposed
 - Admin password: rotated, stored in Bitwarden and `.env` (`ADMIN_PASSWORD`)
 - PyPI token: needed to publish new versions — regenerate if expired
-- GitHub PAT: rotation in progress — verify before relying on it
+- GitHub PAT: rotated Jul 26, 2026, stored via macOS Keychain — do not embed tokens in the remote URL again
