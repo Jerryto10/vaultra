@@ -22,3 +22,5 @@ env/
 *.log
 demo_credit_agent.py
 demo_kyc_agent.py
+CLAUDE-SECURITY-*/
+docs/superpowers/plans/
