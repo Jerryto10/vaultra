@@ -217,6 +217,17 @@
     window.addEventListener('DOMContentLoaded', () => verify());
   }
 
+  // Escape untrusted values before they are inserted into innerHTML so they
+  // are rendered as inert text and can never be interpreted as HTML/JS.
+  function htmlEscape(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   async function verify() {
     const rid = document.getElementById('receipt-input').value.trim();
     if (!rid) return;
@@ -254,39 +265,39 @@
           <div class="fields">
             <div class="field">
               <div class="field-label">Receipt ID</div>
-              <div class="field-value gold">${data.receipt_id}</div>
+              <div class="field-value gold">${htmlEscape(data.receipt_id)}</div>
             </div>
             <div class="field">
               <div class="field-label">Status</div>
-              <div class="field-value green">${(data.status || '').toUpperCase()}</div>
+              <div class="field-value green">${htmlEscape((data.status || '').toUpperCase())}</div>
             </div>
             <div class="field">
               <div class="field-label">Decision Type</div>
-              <div class="field-value ${dtClass}">${data.decision_type || '—'}</div>
+              <div class="field-value ${dtClass}">${htmlEscape(data.decision_type || '—')}</div>
             </div>
             <div class="field">
               <div class="field-label">Regulation</div>
-              <div class="field-value">${data.regulation || '—'}</div>
+              <div class="field-value">${htmlEscape(data.regulation || '—')}</div>
             </div>
             <div class="field">
               <div class="field-label">Agent ID</div>
-              <div class="field-value muted">${data.agent_id || '—'}</div>
+              <div class="field-value muted">${htmlEscape(data.agent_id || '—')}</div>
             </div>
             <div class="field">
               <div class="field-label">Block #</div>
-              <div class="field-value muted">#${data.block_number}</div>
+              <div class="field-value muted">#${htmlEscape(data.block_number)}</div>
             </div>
             <div class="field">
               <div class="field-label">RFC 3161 Timestamp</div>
-              <div class="field-value">${rfcBadge} ${data.rfc3161_ts || 'Pending DigiCert TSA'}</div>
+              <div class="field-value">${rfcBadge} ${htmlEscape(data.rfc3161_ts || 'Pending DigiCert TSA')}</div>
             </div>
             <div class="field">
               <div class="field-label">Created</div>
-              <div class="field-value muted">${data.created_at} UTC</div>
+              <div class="field-value muted">${htmlEscape(data.created_at)} UTC</div>
             </div>
             <div class="field" style="grid-column:1/-1">
               <div class="field-label">Input Hash (SHA-256)</div>
-              <div class="field-value muted" style="font-size:0.65rem;">${data.input_hash || '—'}</div>
+              <div class="field-value muted" style="font-size:0.65rem;">${htmlEscape(data.input_hash || '—')}</div>
             </div>
           </div>
           ${data.rfc3161_valid ? `
@@ -306,13 +317,13 @@
             </div>
           </div>
           <div class="error-msg">
-            Receipt ID <strong>${rid}</strong> was not found in the Vaultra ledger.<br/>
+            Receipt ID <strong>${htmlEscape(rid)}</strong> was not found in the Vaultra ledger.<br/>
             Please check the ID and try again.
           </div>
         `;
       }
     } catch (e) {
-      result.innerHTML = `<div class="error-msg">Connection error — please try again.<br/><small>${e.message}</small></div>`;
+      result.innerHTML = `<div class="error-msg">Connection error — please try again.<br/><small>${htmlEscape(e.message)}</small></div>`;
     }
 
     result.classList.add('show');

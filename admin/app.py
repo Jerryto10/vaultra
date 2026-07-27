@@ -1108,6 +1108,22 @@ def verify_receipt(rid):
         return resp, 404
 
     import json as _json
+    # Cryptographic-validity attestation ─────────────────────────────────
+    # rfc3161_valid / eidas_art41 must reflect a genuine server-side check of
+    # something Vaultra itself produced or verified — NOT the mere presence of
+    # rfc3161_ts. That field is supplied verbatim by the API-key holder at
+    # /api/receipt (sanitize_text only strips HTML/control chars; it does not
+    # validate a TSA token), and the receipts table stores no RFC 3161 .tsr
+    # token and no Ed25519 signature the verifier could re-check. Even a
+    # legitimate SDK client sends only a formatted ISO timestamp string, never
+    # the signed token (see vaultra/pipeline.py _get_rfc3161_timestamp), so the
+    # server holds nothing cryptographically verifiable. A truthiness check on
+    # rfc3161_ts therefore let any API-key holder have the public verifier
+    # vouch for arbitrary client-forged data as RFC 3161 / eIDAS Art. 41 valid.
+    # Until a verifiable server-side artifact (a stored TSA token or signature)
+    # exists to check, the verifier must not assert these as true.
+    rfc3161_valid = False
+    eidas_art41 = False
     response = jsonify({
         "valid": True,
         "receipt_id":    receipt["id"],
@@ -1117,8 +1133,8 @@ def verify_receipt(rid):
         "block_number":  receipt["block_number"],
         "input_hash":    receipt["input_hash"] or "",
         "rfc3161_ts":    receipt["rfc3161_ts"],
-        "rfc3161_valid": bool(receipt["rfc3161_ts"]),
-        "eidas_art41":   bool(receipt["rfc3161_ts"]),
+        "rfc3161_valid": rfc3161_valid,
+        "eidas_art41":   eidas_art41,
         "status":        receipt["status"],
         "created_at":    fmt_date(receipt["created_at"]),
         "verified_by":   "Vaultra AI Agent Compliance Layer",
@@ -1245,7 +1261,7 @@ def delete_admin_user(uid):
 @app.route("/health")
 @cross_origin(origins=PUBLIC_ORIGINS, methods=["GET"])
 def health():
-    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.2","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
+    return jsonify({"status":"ok","service":"vaultra-admin","version":"2.0.3","tsa":"Sectigo eIDAS QTSP (http://timestamp.sectigo.com/qualified)","tsa_status":"active"})
 
 # ── Error handlers — no stacktraces leaked to the client ──────────────────
 def _wants_json():

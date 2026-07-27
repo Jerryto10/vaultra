@@ -129,19 +129,21 @@ def test_layer4_guardian_blocks_unsafe_output(monkeypatch):
 
 @pytest.mark.parametrize("decision_type", ["FUNDS_TRANSFER", "RECORD_DELETE", "IRREVERSIBLE_CONFIG_CHANGE"])
 def test_layer5_human_gate_blocks_irreversible_decisions(monkeypatch, decision_type):
-    """Layer 5 must NOT auto-pass decisions whose type signals an irreversible action."""
+    """Layer 5 must NOT auto-pass decisions whose type signals an irreversible action.
+
+    A held (PENDING) Human Gate must hard-stop the pipeline with ComplianceViolation
+    — exactly like Layers 2/4 — rather than falling through and emitting a passing
+    receipt, which would let an integrator execute the action with no human approval.
+    """
     pipeline = _make_pipeline(monkeypatch)
 
     with patch("vaultra.timestamper.stamp", side_effect=_fake_stamp_ok):
-        receipt = pipeline.process(
-            input_data={"amount": 500},
-            agent_response="Executing the requested action now.",
-            decision_type=decision_type,
-        )
-
-    assert receipt.human_gate_status == "pending"
-    assert receipt.layer_status["human_gate"] is False
-    assert receipt.layers_passed == 6  # everything but the human gate
+        with pytest.raises(ComplianceViolation, match="Human Gate"):
+            pipeline.process(
+                input_data={"amount": 500},
+                agent_response="Executing the requested action now.",
+                decision_type=decision_type,
+            )
 
 
 def test_layer5_human_gate_bypasses_reversible_decisions(monkeypatch):

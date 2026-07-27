@@ -47,7 +47,8 @@ VAULTRA_API_URL = os.environ.get(
 
 
 class ComplianceViolation(Exception):
-    """Raised when Layer 2 (Sanitizer) or Layer 4 (Guardian) hard-blocks a decision."""
+    """Raised when Layer 2 (Sanitizer), Layer 4 (Guardian), or Layer 5 (Human
+    Gate) hard-blocks a decision."""
 
 
 # ── Result dataclass ──────────────────────────────────────
@@ -347,7 +348,9 @@ class VaultraPipeline:
 
         Raises:
             ComplianceViolation: Layer 2 detected a prompt injection in the
-                input, or Layer 4 (Guardian) blocked the agent's output.
+                input, Layer 4 (Guardian) blocked the agent's output, or
+                Layer 5 (Human Gate) held an irreversible action that was not
+                approved (status is not APPROVED/BYPASSED).
         """
         input_hash = self._hash_input(input_data)
         input_str  = str(input_data)
@@ -445,6 +448,19 @@ class VaultraPipeline:
         except Exception as e:
             print(f"[Vaultra] Layer 5 (Human Gate) warning: {e}")
             layer_status["human_gate"] = False
+
+        if human_gate_status is not None and human_gate_status not in (
+            ApprovalStatus.APPROVED, ApprovalStatus.BYPASSED,
+        ):
+            self._record_ledger_event(
+                EventType.MESSAGE_BLOCKED, input_str, identity_fingerprint,
+                layer_status["identity"], sanitize_result, decision_type,
+                metadata={"human_gate_status": human_gate_status.value},
+            )
+            raise ComplianceViolation(
+                f"BLOCKED — Human Gate requires human approval for irreversible action "
+                f"(status={human_gate_status.value}, action={gate_action})"
+            )
 
         # ── Layer 3 — Ledger: record the decision with layer 1/2/4/5 context ──
         ledger_block_hash = None

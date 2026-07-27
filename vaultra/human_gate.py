@@ -141,7 +141,11 @@ def classify_action(action: str, guardian_verdict: Optional[str] = None) -> Acti
     Clasifica una acción por su nivel de riesgo.
     Si el Guardian (Capa 4) marcó la acción como crítica, escala automáticamente.
     """
-    base_risk = ACTION_RISK_MAP.get(action.lower(), ActionRisk.CAUTION)
+    # Fail closed: any action not EXPLICITLY mapped defaults to IRREVERSIBLE so
+    # intercept() holds it for human approval (PENDING) instead of auto-approving.
+    # An unknown/unmapped action name may be an irreversible operation the map
+    # simply doesn't list yet (e.g. erase_record, drop_table, wire, payout).
+    base_risk = ACTION_RISK_MAP.get(action.lower(), ActionRisk.IRREVERSIBLE)
 
     # Si el Guardian detectó riesgo → escalar
     if guardian_verdict in ("blocked", "flagged"):
