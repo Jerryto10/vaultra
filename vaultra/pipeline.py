@@ -382,8 +382,16 @@ class VaultraPipeline:
             sanitize_result = self._sanitizer.analyze(input_str)
             layer_status["sanitizer"] = sanitize_result.verdict != Verdict.INJECTION
         except Exception as e:
-            print(f"[Vaultra] Layer 2 (Sanitizer) warning: {e}")
+            print(f"[Vaultra] Layer 2 (Sanitizer) error: {e}")
             layer_status["sanitizer"] = False
+            self._record_ledger_event(
+                EventType.MESSAGE_BLOCKED, input_str, identity_fingerprint,
+                layer_status["identity"], sanitize_result, decision_type,
+                metadata={"layer2_error": str(e)},
+            )
+            raise ComplianceViolation(
+                f"BLOCKED — Layer 2 (Sanitizer) failed to complete analysis: {e}"
+            )
 
         if sanitize_result is not None and sanitize_result.verdict == Verdict.INJECTION:
             self._record_ledger_event(
@@ -406,8 +414,16 @@ class VaultraPipeline:
             )
             layer_status["guardian"] = guardian_result.verdict != GuardVerdict.BLOCKED
         except Exception as e:
-            print(f"[Vaultra] Layer 4 (Guardian) warning: {e}")
+            print(f"[Vaultra] Layer 4 (Guardian) error: {e}")
             layer_status["guardian"] = False
+            self._record_ledger_event(
+                EventType.MESSAGE_BLOCKED, input_str, identity_fingerprint,
+                layer_status["identity"], sanitize_result, decision_type,
+                metadata={"layer4_error": str(e)},
+            )
+            raise ComplianceViolation(
+                f"BLOCKED — Layer 4 (Guardian) failed to complete analysis: {e}"
+            )
 
         if guardian_result is not None and guardian_result.verdict == GuardVerdict.BLOCKED:
             self._record_ledger_event(

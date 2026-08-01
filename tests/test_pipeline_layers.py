@@ -112,6 +112,52 @@ def test_layer2_sanitizer_blocks_prompt_injection(monkeypatch):
     assert attacks[0].event_type.value == "injection_attempt"
 
 
+def test_layer2_sanitizer_fails_closed_on_analyzer_exception(monkeypatch):
+    """If the Layer 2 analyzer itself raises (e.g. a bug or crash), the pipeline
+    must fail closed with ComplianceViolation — not swallow the exception and
+    fall through to a passing receipt (F22)."""
+    pipeline = _make_pipeline(monkeypatch)
+
+    def _boom(text):
+        raise RuntimeError("sanitizer analyzer crashed")
+
+    monkeypatch.setattr(pipeline._sanitizer, "analyze", _boom)
+
+    with pytest.raises(ComplianceViolation, match="Layer 2"):
+        pipeline.process(
+            input_data="innocuous input",
+            agent_response="ok",
+            decision_type="GENERIC_DECISION",
+        )
+
+    # The failed analysis is still recorded in the ledger as a blocked event.
+    attacks = pipeline._ledger.get_attacks()
+    assert len(attacks) == 1
+    assert attacks[0].event_type.value == "message_blocked"
+
+
+def test_layer4_guardian_fails_closed_on_analyzer_exception(monkeypatch):
+    """If the Layer 4 (Guardian) evaluator itself raises, the pipeline must fail
+    closed with ComplianceViolation rather than emit a passing receipt (F22)."""
+    pipeline = _make_pipeline(monkeypatch)
+
+    def _boom(**kwargs):
+        raise RuntimeError("guardian evaluator crashed")
+
+    monkeypatch.setattr(pipeline._guardian, "evaluate", _boom)
+
+    with pytest.raises(ComplianceViolation, match="Layer 4"):
+        pipeline.process(
+            input_data={"customer_id": "C-3"},
+            agent_response="ok",
+            decision_type="GENERIC_DECISION",
+        )
+
+    attacks = pipeline._ledger.get_attacks()
+    assert len(attacks) == 1
+    assert attacks[0].event_type.value == "message_blocked"
+
+
 def test_layer4_guardian_blocks_unsafe_output(monkeypatch):
     """Layer 4 must hard-block outputs the (offline) guardian marks BLOCKED."""
     pipeline = _make_pipeline(monkeypatch)
