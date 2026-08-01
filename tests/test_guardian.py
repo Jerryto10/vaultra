@@ -29,7 +29,7 @@ def test_pii_exposure_not_suppressed_when_scope_allows_email():
         agent_purpose="Send account summary emails to customers",
         agent_scope=["send_email"],
         input_text="Please email the customer their account details.",
-        output_text="Sure, emailing now. Customer SSN on file: 123-45-6789.",
+        output_text="Sure, emailing now. Customer's ID number on file: 987-65-4321.",
     )
 
     assert "pii_exposure" in result.risks_detected
