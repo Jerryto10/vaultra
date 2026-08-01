@@ -470,7 +470,18 @@ class Sanitizer:
         score = round(min(score, 1.0), 4)
 
         # Veredicto
-        if score < self.threshold_clean:
+        if score_pattern >= 1.0:
+            # PatternEngine confirmó un hit en categoría crítica (score=1.0).
+            # Esto es una señal determinística, no probabilística: no debe
+            # diluirse en el ensemble ponderado ni caer en la zona gris
+            # SUSPICIOUS. Se fuerza INJECTION de inmediato (F6).
+            verdict = Verdict.INJECTION
+            explanation = (
+                f"Patrón crítico confirmado por PatternEngine (score_pattern=1.0). "
+                f"Triggers: {', '.join(triggers) if triggers else 'pattern engine'}. "
+                "Mensaje bloqueado."
+            )
+        elif score < self.threshold_clean:
             verdict = Verdict.CLEAN
             explanation = "Mensaje limpio. Ningún motor detectó señales de inyección."
         elif score < self.threshold_injection:
