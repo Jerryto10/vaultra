@@ -159,11 +159,11 @@ class OfflineGuard:
             r"hide\s+(this|the|that)\s+(from|action|result|output)",
         ],
         "pii_exposure": [
-            r"\d{3}-\d{2}-\d{4}",                                       # SSN con guiones
-            r"\d{9}",                                                     # SSN sin guiones
-            r"\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}",                    # Tarjeta crédito
-            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}",        # Email
-            r"(ssn|social.security|credit.card|card.number).{0,30}\d+",  # Mención explícita
+            r"\d{3}-\d{2}-\d{4}",                                       # SSN con guiones
+            r"\d{9}",                                                     # SSN sin guiones
+            r"\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}",                    # Tarjeta crédito
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}",        # Email
+            r"(ssn|social.security|credit.card|card.number).{0,30}\d+",  # Mención explícita
         ],
     }
 
@@ -207,15 +207,11 @@ class OfflineGuard:
         output_lower = output_text.lower()
         scope_terms  = [s.lower() for s in agent_scope]
 
-        # Suprimir falso positivo de email SOLO si el scope permite envío
-        # y NO hay otros indicadores de exfiltración
-        has_exfil_keywords = any(
-            kw in output_lower
-            for kw in ["evil", "attacker", "exfil", "steal", "ssn", "credit card", "123-45"]
-        )
-        email_allowed = any(s in scope_terms for s in ["send_email", "send_message", "share"])
-        if email_allowed and "pii_exposure" in risks_detected and not has_exfil_keywords:
-            risks_detected = [r for r in risks_detected if r != "pii_exposure"]
+        # NOTA (F14): pii_exposure NO se suprime por scope. Un scope que
+        # permite enviar email/mensajes (send_email, send_message, share)
+        # no es una validación estructurada de que el PII detectado sea
+        # legítimo — sigue contribuyendo al score de riesgo siempre que el
+        # detector de PII (regex) haga match.
 
         # Verbos peligrosos que no están en el scope
         danger_verbs = ["delete", "modify", "execute", "install", "wipe", "shutdown"]
