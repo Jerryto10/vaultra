@@ -54,6 +54,7 @@ import hashlib
 import smtplib
 import urllib.request
 import urllib.error
+import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Callable
@@ -191,8 +192,17 @@ class ApprovalRequest:
     def time_remaining(self) -> float:
         return max(0, self.expires_at - time.time())
 
-    def to_dict(self) -> dict:
-        return {
+    def to_dict(self, include_token: bool = False) -> dict:
+        """
+        Serializa la solicitud a dict.
+
+        Por defecto NO incluye approval_token: el token solo debe viajar
+        hacia los canales de notificación out-of-band (ver HumanGate._notify),
+        nunca de vuelta al código que originó la solicitud. Los notificadores
+        que legítimamente necesitan el token (p. ej. WebhookNotifier) deben
+        pedirlo explícitamente con include_token=True.
+        """
+        data = {
             "request_id":      self.request_id,
             "agent_id":        self.agent_id,
             "agent_name":      self.agent_name,
@@ -200,7 +210,6 @@ class ApprovalRequest:
             "risk_level":      self.risk_level.value,
             "context":         self.context,
             "summary":         self.summary,
-            "approval_token":  self.approval_token,
             "status":          self.status.value,
             "created_at":      self.created_at,
             "expires_at":      self.expires_at,
@@ -209,6 +218,22 @@ class ApprovalRequest:
             "decided_by":      self.decided_by,
             "rejection_reason": self.rejection_reason,
         }
+        if include_token:
+            data["approval_token"] = self.approval_token
+        return data
+
+    def for_caller(self) -> "ApprovalRequest":
+        """
+        Copia de esta solicitud segura para devolver al código que la
+        originó (el propio agente/pipeline que invocó intercept()).
+
+        El approval_token se elimina: si el llamador pudiera leerlo desde
+        el valor de retorno de intercept(), podría usarlo para invocar
+        decide() y auto-aprobar su propia acción irreversible. El token
+        real solo se entrega a través de los canales de notificación
+        configurados (_notify), fuera del proceso del agente.
+        """
+        return dataclasses.replace(self, approval_token="")
 
     def render_notification(self) -> str:
         """Texto legible para notificación al humano."""
@@ -267,7 +292,9 @@ class WebhookNotifier:
     def send(self, request: ApprovalRequest) -> bool:
         payload = json.dumps({
             "type":    "agentshield_approval_request",
-            "request": request.to_dict(),
+            # include_token=True: el webhook ES el canal out-of-band que
+            # entrega el token al operador humano (Slack/Teams/n8n/etc.).
+            "request": request.to_dict(include_token=True),
             "text":    request.render_notification(),
         }).encode()
 
@@ -371,6 +398,13 @@ class HumanGate:
         """
         Punto de entrada principal.
         Evalúa si la acción necesita aprobación y la gestiona.
+
+        El objeto devuelto al llamador (el propio agente/pipeline que
+        invoca intercept()) NUNCA incluye approval_token — ver
+        ApprovalRequest.for_caller(). El token real solo se entrega a
+        través de los canales de notificación configurados (_notify),
+        para que la aprobación quede en manos de un operador humano
+        distinto del agente que solicitó la acción.
         """
         risk = classify_action(action, guardian_verdict)
         timeout = timeout or self.default_timeout
@@ -383,7 +417,7 @@ class HumanGate:
             req.decided_by = "auto_system"
             self._history.append(req)
             print(f"[HumanGate] ✅ Auto-aprobado (reversible): {action}")
-            return req
+            return req.for_caller()
 
         # Acciones de precaución → log pero no bloquear
         if risk == ActionRisk.CAUTION:
@@ -393,7 +427,7 @@ class HumanGate:
             req.decided_by = "auto_caution"
             self._history.append(req)
             print(f"[HumanGate] 🟡 Acción de precaución registrada: {action}")
-            return req
+            return req.for_caller()
 
         # IRREVERSIBLE o CRITICAL → requieren aprobación humana
         req = self._make_request(agent_id, agent_name, action, risk, context, summary, timeout)
@@ -405,7 +439,7 @@ class HumanGate:
         self._notify(req)
 
         print(f"[HumanGate] ⏳ Esperando aprobación humana... token={req.approval_token[:12]}... timeout={timeout}s")
-        return req
+        return req.for_caller()
 
     def decide(
         self,
@@ -417,6 +451,12 @@ class HumanGate:
         """
         Registra la decisión humana para una solicitud pendiente.
         decision: "APPROVE" | "REJECT"
+
+        decided_by DEBE identificar a un operador humano distinto del
+        agente que originó la solicitud. Si coincide con el agent_id o
+        agent_name del solicitante, se trata como un intento de
+        auto-aprobación y se rechaza — un agente no puede ser su propio
+        aprobador de una acción irreversible.
         """
         with self._lock:
             req = self._pending.get(token)
@@ -429,6 +469,25 @@ class HumanGate:
                 del self._pending[token]
                 self._history.append(req)
                 print(f"[HumanGate] ⌛ Solicitud expirada: {req.request_id[:12]}...")
+                return req
+
+            # Bloquear auto-aprobación: el operador que decide no puede ser
+            # el mismo agente que solicitó la acción irreversible.
+            if decided_by and decided_by in (req.agent_id, req.agent_name):
+                req.decided_at = time.time()
+                req.decided_by = decided_by
+                req.status = ApprovalStatus.REJECTED
+                req.rejection_reason = (
+                    "Auto-aprobación bloqueada: decided_by coincide con el "
+                    "agente solicitante"
+                )
+                print(
+                    f"[HumanGate] 🚫 AUTO-APROBACIÓN BLOQUEADA: '{decided_by}' "
+                    f"intentó aprobar su propia solicitud ({req.action}, "
+                    f"{req.request_id[:8]}...)"
+                )
+                del self._pending[token]
+                self._history.append(req)
                 return req
 
             req.decided_at = time.time()
