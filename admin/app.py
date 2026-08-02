@@ -40,9 +40,17 @@ from flask import (
 )
 from flask_cors import CORS, cross_origin
 from markupsafe import escape
+from werkzeug.middleware.proxy_fix import ProxyFix
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 app = Flask(__name__)
+# Trust exactly one reverse-proxy hop for X-Forwarded-For (F9). Confirmed
+# against the live Hetzner nginx config: admin.vaultra.io's server block
+# proxies directly to this Gunicorn worker with no other proxy/CDN/LB in
+# front, so request.remote_addr becomes the real client IP instead of
+# nginx's own loopback address — otherwise every login attempt is keyed on
+# 127.0.0.1 and the rate limiter effectively never bites.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError(
@@ -128,7 +136,32 @@ def _rl_conn():
     conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
-def check_login_rate(ip):
+def normalize_login_identifier(identifier):
+    """Normalize a submitted username for use as a rate-limit key so trivial
+    case variation (or incidental whitespace) can't be used to dodge the
+    per-account counter by presenting as a "different" account."""
+    return (identifier or "").strip().lower()
+
+def check_login_rate(ip, identifier):
+    """Rate-limit keyed on the submitted account identifier, not ip alone (F10).
+
+    The old ip-only limiter had two failure modes: (1) one attacker behind a
+    shared/NATed IP could exhaust the shared budget by cycling usernames from
+    that one IP, locking every admin who happens to log in from the same
+    address (one bad actor, many victims); (2) an attacker distributed across
+    many source IPs could hammer a single victim account completely unnoticed,
+    since each IP got its own separate budget.
+
+    A per-account backoff (count keyed on the normalized identifier alone,
+    across all source IPs) fixes both: account A's failed attempts never
+    borrow from or spend account B's budget regardless of shared IP, and an
+    account under attack is throttled no matter how many different IPs the
+    attempts arrive from. `ip` is still recorded on every row (see
+    record_login_attempt) purely for audit/forensics — it is intentionally
+    not part of the throttle decision itself, per the report's directive to
+    "prefer per-account backoff over a global cutoff."
+    """
+    identifier = normalize_login_identifier(identifier)
     conn = _rl_conn()
     try:
         now = time.time()
@@ -138,27 +171,35 @@ def check_login_rate(ip):
             (now - LOGIN_WINDOW,)
         )
         count = conn.execute(
-            "SELECT COUNT(*) FROM login_attempts WHERE scope='admin' AND ip=?", (ip,)
+            "SELECT COUNT(*) FROM login_attempts "
+            "WHERE scope='admin' AND identifier=?",
+            (identifier,)
         ).fetchone()[0]
         conn.execute("COMMIT")
         return count < MAX_LOGIN_ATTEMPTS
     finally:
         conn.close()
 
-def record_login_attempt(ip):
+def record_login_attempt(ip, identifier):
+    identifier = normalize_login_identifier(identifier)
     conn = _rl_conn()
     try:
         conn.execute(
-            "INSERT INTO login_attempts (scope, ip, created_at) VALUES ('admin', ?, ?)",
-            (ip, time.time())
+            "INSERT INTO login_attempts (scope, ip, identifier, created_at) "
+            "VALUES ('admin', ?, ?, ?)",
+            (ip, identifier, time.time())
         )
     finally:
         conn.close()
 
-def clear_login_attempts(ip):
+def clear_login_attempts(ip, identifier):
+    identifier = normalize_login_identifier(identifier)
     conn = _rl_conn()
     try:
-        conn.execute("DELETE FROM login_attempts WHERE scope='admin' AND ip=?", (ip,))
+        conn.execute(
+            "DELETE FROM login_attempts WHERE scope='admin' AND identifier=?",
+            (identifier,)
+        )
     finally:
         conn.close()
 
@@ -349,6 +390,7 @@ def init_db():
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             scope      TEXT NOT NULL DEFAULT 'admin',
             ip         TEXT NOT NULL,
+            identifier TEXT NOT NULL DEFAULT '',
             created_at REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_login_attempts_scope_ip ON login_attempts(scope, ip, created_at);
@@ -381,11 +423,26 @@ def init_db():
         # session cookies for that user stop validating (see
         # bump_session_version / check_session_revoked below).
         "ALTER TABLE admin_users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
+        # F10: rate-limit key now includes the submitted username, not just
+        # ip, so one attacker behind a shared IP can't lock out every admin
+        # account (see check_login_rate / record_login_attempt above).
+        "ALTER TABLE login_attempts ADD COLUMN identifier TEXT NOT NULL DEFAULT ''",
     ]:
         try:
             db.execute(col_sql)
         except Exception:
             pass
+    db.commit()
+
+    # This index needs the `identifier` column above to already exist, so it
+    # can't live in the CREATE TABLE block for databases upgrading from
+    # before F10 — build it after the ALTER TABLE migration runs. It matches
+    # check_login_rate/clear_login_attempts' actual query shape (filtered on
+    # scope + identifier, no longer on ip — see F10 above).
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_login_attempts_scope_identifier "
+        "ON login_attempts(scope, identifier, created_at)"
+    )
     db.commit()
 
     # Create default users
@@ -591,9 +648,9 @@ def login():
         error = "Your session is no longer valid. Please sign in again."
     if request.method == "POST":
         ip = request.remote_addr
-        if not check_login_rate(ip):
-            return render_template("login.html", error="Too many login attempts. Please wait 5 minutes."), 429
         username = request.form.get("username","").strip()
+        if not check_login_rate(ip, username):
+            return render_template("login.html", error="Too many login attempts. Please wait 5 minutes."), 429
         password = request.form.get("password","")
         db = get_db()
         user = db.execute(
@@ -609,7 +666,7 @@ def login():
             if not password_ok:
                 user = None
         if user:
-            clear_login_attempts(ip)
+            clear_login_attempts(ip, username)
             session.permanent = False
             session["admin_id"] = user["id"]
             session["username"] = user["username"]
@@ -622,7 +679,7 @@ def login():
             db.commit()
             log_action("LOGIN", details=f"IP: {request.remote_addr}")
             return redirect(url_for("dashboard"))
-        record_login_attempt(ip)
+        record_login_attempt(ip, username)
         error = "Invalid username or password."
         time.sleep(1)  # Slow down brute force
     return render_template("login.html", error=error)
