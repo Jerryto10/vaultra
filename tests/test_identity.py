@@ -34,6 +34,23 @@ def test_tampered_data_fails():
     print("✅ test_tampered_data_fails passed")
 
 
+def test_identity_persists_across_instances(tmp_path):
+    """F21 (1/4): the keypair must be persisted to key_path and reloaded on
+    the next instantiation — not silently regenerated every time."""
+    key_path = tmp_path / "agent-004.pem"
+
+    first = AgentIdentity("agent-004", key_path=str(key_path))
+    assert key_path.exists()
+    # Private key file must not be group/world readable.
+    assert oct(key_path.stat().st_mode)[-3:] == "600"
+
+    second = AgentIdentity("agent-004", key_path=str(key_path))
+
+    assert second.fingerprint() == first.fingerprint()
+    assert second.public_key_hex() == first.public_key_hex()
+    print("✅ test_identity_persists_across_instances passed")
+
+
 if __name__ == "__main__":
     test_identity_creation()
     test_sign_and_verify()

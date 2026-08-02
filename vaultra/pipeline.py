@@ -321,6 +321,9 @@ class VaultraPipeline:
                     "block_number":  receipt.block_number,
                     "rfc3161_ts":    receipt.rfc3161_ts,
                     "regulation":    receipt.regulation,
+                    "identity_signature":   receipt.identity_signature,
+                    "identity_fingerprint": receipt.identity_fingerprint,
+                    "identity_public_key":  self._identity.public_key_hex(),
                 },
                 timeout=8,
             )
