@@ -288,3 +288,45 @@ def test_change_password_writes_bcrypt_hash(portal_app_module, client):
     row = _row_by_id(portal_app_module, user_id)
     assert row["password_hash"].startswith("$2")
     assert bcrypt.checkpw(b"brand-new-password1", row["password_hash"].encode())
+
+
+# ── /api/invite: PORTAL_ADMIN_TOKEN must be compared constant-time (F23) ───
+#
+# Task 2.5: create_invitation() used `auth != expected` to check the
+# X-Admin-Token header against PORTAL_ADMIN_TOKEN, a variable-time string
+# comparison vulnerable to timing attacks. Fixed to use
+# `hmac.compare_digest`, with the `not expected` guard kept first so an
+# empty/unset PORTAL_ADMIN_TOKEN still fails closed rather than ever
+# reaching the comparison.
+
+def test_invite_accepts_correct_admin_token(portal_app_module, client, monkeypatch):
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "correct-admin-token")
+    resp = client.post(
+        "/api/invite",
+        json={"client_id": str(uuid.uuid4()), "email": "invitee@example.com"},
+        headers={"X-Admin-Token": "correct-admin-token"},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+
+def test_invite_rejects_incorrect_admin_token(portal_app_module, client, monkeypatch):
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "correct-admin-token")
+    resp = client.post(
+        "/api/invite",
+        json={"client_id": str(uuid.uuid4()), "email": "invitee@example.com"},
+        headers={"X-Admin-Token": "wrong-admin-token"},
+    )
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "Unauthorized"
+
+
+def test_invite_fails_closed_when_admin_token_unset(portal_app_module, client, monkeypatch):
+    monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
+    resp = client.post(
+        "/api/invite",
+        json={"client_id": str(uuid.uuid4()), "email": "invitee@example.com"},
+        headers={"X-Admin-Token": ""},
+    )
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "Unauthorized"

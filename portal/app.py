@@ -780,7 +780,7 @@ def create_invitation():
     """Called by admin panel to create a client invitation."""
     auth = request.headers.get("X-Admin-Token", "")
     expected = os.environ.get("PORTAL_ADMIN_TOKEN", "")
-    if not expected or auth != expected:
+    if not expected or not hmac.compare_digest(auth, expected):
         return jsonify({"error": "Unauthorized"}), 401
 
     data = request.get_json()
