@@ -50,7 +50,8 @@ if not SECRET_KEY:
         "insecure, randomly-generated key — set SECRET_KEY in the environment (.env)."
     )
 app.secret_key = SECRET_KEY
-SESSION_TIMEOUT = 1800  # 30 minutes
+SESSION_TIMEOUT = 1800  # 30 minutes — idle timeout
+SESSION_ABSOLUTE_LIFETIME = 8 * 3600  # 8 hours — hard cap regardless of activity (F11)
 
 # ── CORS — admin panel is same-origin only; /health and /api/verify/*
 # additionally serve the public landing page and portal ──────────────
@@ -234,12 +235,13 @@ def init_db():
     db.execute("PRAGMA foreign_keys=ON")
     db.executescript("""
         CREATE TABLE IF NOT EXISTS admin_users (
-            id            TEXT PRIMARY KEY,
-            username      TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            role          TEXT NOT NULL DEFAULT 'support',
-            created_at    REAL NOT NULL,
-            last_login    REAL
+            id              TEXT PRIMARY KEY,
+            username        TEXT NOT NULL UNIQUE,
+            password_hash   TEXT NOT NULL,
+            role            TEXT NOT NULL DEFAULT 'support',
+            created_at      REAL NOT NULL,
+            last_login      REAL,
+            session_version INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS clients (
@@ -374,6 +376,11 @@ def init_db():
         "ALTER TABLE clients ADD COLUMN website TEXT",
         "ALTER TABLE receipts ADD COLUMN identity_signature TEXT",
         "ALTER TABLE receipts ADD COLUMN identity_fingerprint TEXT",
+        # F11: per-user session-version counter — bumped on delete/password
+        # change (and reusable for a future role-change route) so existing
+        # session cookies for that user stop validating (see
+        # bump_session_version / check_session_revoked below).
+        "ALTER TABLE admin_users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
     ]:
         try:
             db.execute(col_sql)
@@ -455,12 +462,59 @@ def seed_demo_data(db):
 
 # ── Auth & Security ────────────────────────────────────────
 def check_session_timeout():
-    """Return True if session has expired."""
+    """Return True if session has expired from inactivity (30-min idle
+    timeout)."""
     last = session.get("last_active")
     if last and (time.time() - last) > SESSION_TIMEOUT:
         session.clear()
         return True
     session["last_active"] = time.time()
+    return False
+
+def check_absolute_timeout():
+    """Return True if the session has existed longer than
+    SESSION_ABSOLUTE_LIFETIME, regardless of activity. This is a hard cap
+    independent of the idle timeout above — a continuously-active session
+    still has to re-authenticate eventually (F11)."""
+    started = session.get("session_start")
+    if started and (time.time() - started) > SESSION_ABSOLUTE_LIFETIME:
+        session.clear()
+        return True
+    return False
+
+def bump_session_version(admin_id):
+    """Invalidate any outstanding session cookies for this admin by bumping
+    their session_version in the DB. Called at every point an admin's
+    access should be revoked out from under an already-logged-in session:
+    account deletion and password change today (delete_admin_user,
+    change_password) — and trivially reusable from a future role-change
+    route, should one be added. check_session_revoked() below is what
+    actually enforces this on each request (F11)."""
+    db = get_db()
+    db.execute(
+        "UPDATE admin_users SET session_version = session_version + 1 WHERE id=?",
+        (admin_id,),
+    )
+    db.commit()
+
+def check_session_revoked():
+    """Return True if the admin_users row backing this session is gone
+    (deleted), or its session_version no longer matches the version stamped
+    into the session cookie at login (password changed, or a future
+    role-change). Missing-user is the primary signal for the delete case:
+    once the row is deleted there is nothing left to compare a version
+    against, so absence alone is treated as revocation (F11)."""
+    db = get_db()
+    user = db.execute(
+        "SELECT session_version FROM admin_users WHERE id=?",
+        (session.get("admin_id"),),
+    ).fetchone()
+    if user is None:
+        session.clear()
+        return True
+    if user["session_version"] != session.get("session_version"):
+        session.clear()
+        return True
     return False
 
 def login_required(f):
@@ -470,6 +524,10 @@ def login_required(f):
             return redirect(url_for("login"))
         if check_session_timeout():
             return redirect(url_for("login", reason="timeout"))
+        if check_absolute_timeout():
+            return redirect(url_for("login", reason="timeout"))
+        if check_session_revoked():
+            return redirect(url_for("login", reason="revoked"))
         return f(*args, **kwargs)
     return decorated
 
@@ -480,6 +538,10 @@ def admin_required(f):
             return redirect(url_for("login"))
         if check_session_timeout():
             return redirect(url_for("login", reason="timeout"))
+        if check_absolute_timeout():
+            return redirect(url_for("login", reason="timeout"))
+        if check_session_revoked():
+            return redirect(url_for("login", reason="revoked"))
         if session.get("role") != "admin":
             return jsonify({"error": "Admin access required"}), 403
         return f(*args, **kwargs)
@@ -525,6 +587,8 @@ def login():
     error = None
     if reason == "timeout":
         error = "Session expired after 30 minutes of inactivity. Please sign in again."
+    elif reason == "revoked":
+        error = "Your session is no longer valid. Please sign in again."
     if request.method == "POST":
         ip = request.remote_addr
         if not check_login_rate(ip):
@@ -550,7 +614,9 @@ def login():
             session["admin_id"] = user["id"]
             session["username"] = user["username"]
             session["role"] = user["role"]
+            session["session_version"] = user["session_version"]
             session["last_active"] = time.time()
+            session["session_start"] = time.time()
             db.execute("UPDATE admin_users SET last_login=? WHERE id=?",
                       (time.time(), user["id"]))
             db.commit()
@@ -1383,6 +1449,7 @@ def change_password():
 
     db.execute("UPDATE admin_users SET password_hash=? WHERE id=?", (new_hash, session["admin_id"]))
     db.commit()
+    bump_session_version(session["admin_id"])
     log_action("CHANGE_PASSWORD", details="Password changed successfully")
     return jsonify({"success": True})
 
@@ -1437,6 +1504,12 @@ def delete_admin_user(uid):
     if not user:
         return jsonify({"error": "User not found"}), 404
 
+    # Bump session_version before the row disappears — belt-and-suspenders
+    # alongside check_session_revoked()'s missing-user check, and keeps
+    # bump_session_version() called at both real trigger points today
+    # (delete + change_password) so it's a drop-in for a future role-change
+    # route too (F11).
+    bump_session_version(uid)
     db.execute("DELETE FROM admin_users WHERE id=?", (uid,))
     db.commit()
     log_action("DELETE_ADMIN_USER", uid, f"username:{user['username']}")

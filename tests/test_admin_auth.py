@@ -22,6 +22,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 
 import bcrypt
 import pytest
@@ -191,6 +192,9 @@ def _login_session(client, admin_app_module, username="admin"):
         sess["username"] = row["username"]
         sess["role"] = row["role"]
         sess["csrf_token"] = FIXED_CSRF_TOKEN
+        sess["last_active"] = time.time()
+        sess["session_start"] = time.time()
+        sess["session_version"] = row["session_version"]
 
 
 def test_change_password_rejects_legacy_current_hash(admin_app_module, client):

@@ -279,20 +279,41 @@ def test_invalid_api_key_rejected(admin_app_module, client):
 CSRF_TOKEN = "test-only-csrf-token"
 
 
-def _login_as_admin(client, username="alice", role="admin"):
+def _login_as_admin(client, admin_app_module, username="alice", role="admin"):
     """Simulate an authenticated admin-panel session directly via Flask's
     test-client session transaction, mirroring how login_required/
     admin_required read session['admin_id']/['role'] (admin/app.py ~lines
     469-490). Also seeds a known csrf_token so POSTs can satisfy
     enforce_csrf() (admin/app.py ~line 106) by echoing it back as the
     X-CSRF-Token header — /agent-keys/<id>/resolve is a mutating route and
-    is not in CSRF_EXEMPT_PATHS."""
+    is not in CSRF_EXEMPT_PATHS.
+
+    F11: login_required/admin_required now also re-validate the session
+    against a real admin_users row (existence + session_version), so a
+    session pointing at an id with no backing row is rejected as revoked.
+    A real row is inserted here — with session_version matching what's
+    stamped into the session cookie — so these tests keep exercising the
+    routes under test rather than tripping the new revocation check."""
+    admin_id = str(uuid.uuid4())
+    conn = sqlite3.connect(admin_app_module.DB_PATH)
+    try:
+        conn.execute(
+            """INSERT INTO admin_users
+               (id, username, password_hash, role, created_at, session_version)
+               VALUES (?, ?, 'x', ?, ?, 0)""",
+            (admin_id, username, role, time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     with client.session_transaction() as sess:
-        sess["admin_id"] = str(uuid.uuid4())
+        sess["admin_id"] = admin_id
         sess["username"] = username
         sess["role"] = role
         sess["csrf_token"] = CSRF_TOKEN
         sess["last_active"] = time.time()
+        sess["session_start"] = time.time()
+        sess["session_version"] = 0
 
 
 def _seed_agent_key(admin_app_module, client_id, agent_id, public_key, fingerprint, now=None):
@@ -342,7 +363,7 @@ def test_resolve_approve_updates_agent_keys_and_resolves_conflict(admin_app_modu
         incoming_fingerprint=FINGERPRINT_B, receipt_id="rid-1",
     )
 
-    _login_as_admin(client)
+    _login_as_admin(client, admin_app_module)
     resp = client.post(
         f"/agent-keys/{conflict_id}/resolve",
         json={"action": "approve"},
@@ -372,7 +393,7 @@ def test_resolve_reject_leaves_agent_keys_untouched(admin_app_module, client):
         incoming_fingerprint=FINGERPRINT_B, receipt_id="rid-2",
     )
 
-    _login_as_admin(client)
+    _login_as_admin(client, admin_app_module)
     resp = client.post(
         f"/agent-keys/{conflict_id}/resolve",
         json={"action": "reject"},
@@ -414,7 +435,7 @@ def test_resolve_group_resolves_all_duplicate_pending_rows(admin_app_module, cli
         incoming_fingerprint=FINGERPRINT_B, receipt_id="rid-other",
     )
 
-    _login_as_admin(client)
+    _login_as_admin(client, admin_app_module)
     resp = client.post(
         f"/agent-keys/{ids[0]}/resolve",
         json={"action": "reject"},
@@ -443,7 +464,7 @@ def test_agent_keys_list_groups_duplicate_pending_conflicts(admin_app_module, cl
             created_at=time.time() + i,
         )
 
-    _login_as_admin(client)
+    _login_as_admin(client, admin_app_module)
     resp = client.get("/agent-keys")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
@@ -463,7 +484,7 @@ def test_resolve_requires_admin_role(admin_app_module, client):
         incoming_fingerprint=FINGERPRINT_B,
     )
 
-    _login_as_admin(client, username="bob", role="support")
+    _login_as_admin(client, admin_app_module, username="bob", role="support")
     resp = client.post(
         f"/agent-keys/{conflict_id}/resolve",
         json={"action": "approve"},
