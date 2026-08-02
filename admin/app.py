@@ -38,6 +38,7 @@ from flask import (
 )
 from flask_cors import CORS, cross_origin
 from markupsafe import escape
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 app = Flask(__name__)
 SECRET_KEY = os.environ.get("SECRET_KEY")
@@ -1224,6 +1225,44 @@ def health_check_page():
         role=session.get("role"))
 
 
+def _verify_identity_signature(receipt, public_key_hex):
+    """F21 (4/4): verify a receipt's identity_signature against a registered
+    Ed25519 public key.
+
+    Reconstructs the exact ``signable`` dict vaultra/pipeline.py signs —
+    ``{"agent_id", "input_hash", "decision", "decision_type", "block"}``,
+    JSON-encoded with ``sort_keys=True`` — from the receipt's own stored
+    columns (``block_number`` maps to the ``block`` key), then checks it
+    against ``public_key_hex`` using the same Ed25519 verify path
+    ``AgentIdentity.verify`` uses (see vaultra/identity.py). Both the stored
+    signature and the stored public key are hex-encoded, so each is decoded
+    with ``bytes.fromhex`` first.
+
+    Returns False — never raises — on any mismatch, malformed hex, or
+    missing data. This is a safe default, not an error path: in particular,
+    a receipt whose ``decision`` was altered by sanitize_text's HTML-strip/
+    truncate step at ingestion (see /api/receipt) will legitimately fail to
+    reconstruct the original signed payload even though the receipt is
+    genuine — identity_verified: false is the correct output in that case,
+    never coerced to true.
+    """
+    try:
+        signable = {
+            "agent_id":      receipt["agent_id"],
+            "input_hash":    receipt["input_hash"] or "",
+            "decision":      receipt["decision"] or "",
+            "decision_type": receipt["decision_type"] or "",
+            "block":         receipt["block_number"],
+        }
+        payload = json.dumps(signable, sort_keys=True).encode()
+        public_key = Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
+        signature = bytes.fromhex(receipt["identity_signature"])
+        public_key.verify(signature, payload)
+        return True
+    except Exception:
+        return False
+
+
 @app.route("/api/verify/<rid>", methods=["GET", "OPTIONS"])
 @cross_origin(origins=PUBLIC_ORIGINS, methods=["GET"])
 def verify_receipt(rid):
@@ -1232,9 +1271,10 @@ def verify_receipt(rid):
     """
     db = get_db()
     receipt = db.execute(
-        """SELECT r.id, r.agent_id, r.decision_type, r.regulation,
-                  r.block_number, r.input_hash, r.rfc3161_ts,
-                  r.status, r.created_at
+        """SELECT r.id, r.client_id, r.agent_id, r.decision, r.decision_type,
+                  r.regulation, r.block_number, r.input_hash, r.rfc3161_ts,
+                  r.status, r.created_at, r.identity_signature,
+                  r.identity_fingerprint
            FROM receipts r WHERE r.id=?""",
         (rid,)
     ).fetchone()
@@ -1264,6 +1304,25 @@ def verify_receipt(rid):
     # exists to check, the verifier must not assert these as true.
     rfc3161_valid = False
     eidas_art41 = False
+
+    # F21 (4/4): identity_verified reflects a genuine Ed25519 signature check
+    # against the server-side agent_keys registry (Task 1.8) — never a
+    # truthiness check of receipt.identity_fingerprint, which is client-
+    # supplied and stored verbatim (see Task 1.8's carry-forward note: it is
+    # never recomputed server-side and must not be trusted as authoritative).
+    # False (not omitted) whenever no signature was stored (older receipts /
+    # pre-1.7 SDKs) or no agent_keys entry exists for (client_id, agent_id) —
+    # missing data must never default to a passing verification.
+    identity_verified = False
+    if receipt["identity_signature"]:
+        key_row = db.execute(
+            """SELECT public_key FROM agent_keys
+               WHERE client_id=? AND agent_id=? AND status='active'""",
+            (receipt["client_id"], receipt["agent_id"])
+        ).fetchone()
+        if key_row:
+            identity_verified = _verify_identity_signature(receipt, key_row["public_key"])
+
     response = jsonify({
         "valid": True,
         "receipt_id":    receipt["id"],
@@ -1275,6 +1334,7 @@ def verify_receipt(rid):
         "rfc3161_ts":    receipt["rfc3161_ts"],
         "rfc3161_valid": rfc3161_valid,
         "eidas_art41":   eidas_art41,
+        "identity_verified": identity_verified,
         "status":        receipt["status"],
         "created_at":    fmt_date(receipt["created_at"]),
         "verified_by":   "Vaultra AI Agent Compliance Layer",

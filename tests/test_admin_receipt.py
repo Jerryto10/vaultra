@@ -34,6 +34,7 @@ established convention. Isolation notes:
 
 import hashlib
 import importlib
+import json
 import os
 import sqlite3
 import sys
@@ -41,6 +42,8 @@ import time
 import uuid
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -465,3 +468,117 @@ def test_resolve_requires_admin_role(admin_app_module, client):
 
     conflicts = _conflict_rows(admin_app_module, client_id, "agent-1")
     assert conflicts[0]["status"] == "pending"
+
+
+# ── Task 1.10 (F21 4/4): /api/verify/<rid> — real Ed25519 signature check
+# against the agent_keys registry enrolled by receive_receipt() above. ──────
+
+def _signable(agent_id, input_hash, decision, decision_type, block):
+    """Mirror the exact dict vaultra/pipeline.py signs (see _send_receipt /
+    the `signable` construction around line 365): same four data fields plus
+    `block` (which maps to the receipt's `block_number` column), JSON-encoded
+    with sort_keys=True before signing."""
+    return {
+        "agent_id": agent_id,
+        "input_hash": input_hash,
+        "decision": decision,
+        "decision_type": decision_type,
+        "block": block,
+    }
+
+
+def _sign(private_key, agent_id, input_hash, decision, decision_type, block):
+    payload = json.dumps(
+        _signable(agent_id, input_hash, decision, decision_type, block),
+        sort_keys=True,
+    ).encode()
+    return private_key.sign(payload)
+
+
+def _public_key_hex(private_key):
+    return private_key.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ).hex()
+
+
+def test_verify_receipt_valid_signature_is_identity_verified(admin_app_module, client):
+    """Happy path: a receipt whose identity_signature verifies against the
+    key registered for (client_id, agent_id) at enrollment must come back
+    identity_verified: true. `decision` here ("APPROVE") is plain ASCII with
+    no '<'/'>' and well under 2000 chars, so sanitize_text at ingestion is a
+    no-op on it — the stored `decision` column matches exactly what was
+    signed, so this demonstrates a genuine successful verification rather
+    than an accidental false negative (see Task 1.10 brief's note on
+    sanitize_text truncation/stripping as an accepted false-negative case)."""
+    client_id, api_key = _make_client_row(admin_app_module)
+    private_key = Ed25519PrivateKey.generate()
+    public_key_hex = _public_key_hex(private_key)
+    signature_hex = _sign(
+        private_key, "agent-1", "deadbeef", "APPROVE", "LOAN_APPROVED", 1
+    ).hex()
+
+    post_resp = _post_receipt(
+        client, api_key, agent_id="agent-1",
+        public_key=public_key_hex, fingerprint=FINGERPRINT_A, signature=signature_hex,
+    )
+    rid = post_resp.get_json()["receipt_id"]
+
+    resp = client.get(f"/api/verify/{rid}")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["identity_verified"] is True
+    # Must never be conflated with the (still-False, per the F1 fix) RFC 3161
+    # / eIDAS fields.
+    assert body["rfc3161_valid"] is False
+    assert body["eidas_art41"] is False
+
+
+def test_verify_receipt_signature_not_matching_registered_key_is_unverified(admin_app_module, client):
+    """A signature produced by a *different* keypair than the one enrolled
+    for (client_id, agent_id) must not verify — even though a public key IS
+    registered and a signature IS present."""
+    client_id, api_key = _make_client_row(admin_app_module)
+    enrolled_key = Ed25519PrivateKey.generate()
+    attacker_key = Ed25519PrivateKey.generate()
+    enrolled_public_key_hex = _public_key_hex(enrolled_key)
+
+    # First receipt enrolls `enrolled_key` as the trusted key for agent-1.
+    first = _post_receipt(
+        client, api_key, agent_id="agent-1",
+        public_key=enrolled_public_key_hex, fingerprint=FINGERPRINT_A,
+        signature=_sign(enrolled_key, "agent-1", "deadbeef", "APPROVE", "LOAN_APPROVED", 1).hex(),
+    )
+    assert first.get_json()["success"] is True
+
+    # Second receipt claims the same (already-enrolled) public key in its
+    # identity_public_key field (so no conflict is filed / registry is
+    # untouched), but its identity_signature was actually produced by a
+    # different, unregistered key — e.g. a forged/replayed signature.
+    forged_signature_hex = _sign(
+        attacker_key, "agent-1", "cafebabe", "REJECT", "LOAN_REJECTED", 2
+    ).hex()
+    second = _post_receipt(
+        client, api_key, agent_id="agent-1",
+        public_key=enrolled_public_key_hex, fingerprint=FINGERPRINT_A,
+        signature=forged_signature_hex,
+    )
+    rid = second.get_json()["receipt_id"]
+
+    resp = client.get(f"/api/verify/{rid}")
+    assert resp.status_code == 200
+    assert resp.get_json()["identity_verified"] is False
+
+
+def test_verify_receipt_no_registered_key_is_unverified(admin_app_module, client):
+    """No agent_keys entry at all for (client_id, agent_id) — e.g. an older
+    SDK (pre-1.7) that never sent identity_* fields — must yield
+    identity_verified: false, not omitted and never defaulted to true."""
+    client_id, api_key = _make_client_row(admin_app_module)
+    post_resp = _post_receipt(client, api_key, agent_id="agent-legacy")
+    rid = post_resp.get_json()["receipt_id"]
+
+    resp = client.get(f"/api/verify/{rid}")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["identity_verified"] is False
+    assert body["valid"] is True  # receipt itself is still a valid record
