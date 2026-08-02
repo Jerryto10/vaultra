@@ -132,31 +132,31 @@ class OfflineGuard:
     # Señales de riesgo en outputs
     OUTPUT_RISK_PATTERNS = {
         "data_exfiltration": [
-            r"(sending|forwarding|transmitting|uploading)\s+.{0,30}(data|information|logs?|history)",
-            r"(here\s+is|below\s+is)\s+.{0,20}(confidential|private|secret|internal)",
+            r"(sending|forwarding|transmitting|uploading)\s+.{0,30}(data|information|logs?|history)",
+            r"(here\s+is|below\s+is)\s+.{0,20}(confidential|private|secret|internal)",
             r"(password|token|api[_\s]key|secret|credential)\s*[:=]\s*\S+",
-            r"curl\s+.{0,50}(post|upload|send)",
+            r"curl\s+.{0,50}(post|upload|send)",
         ],
         "scope_deviation": [
-            r"(executing|running|deleting|modifying|creating)\s+.{0,30}(file|database|system|server)",
-            r"(i\s+have\s+)?(accessed|modified|deleted|changed)\s+.{0,30}(your|the)\s+(file|data|record)",
-            r"installing\s+(package|library|software|malware)",
+            r"(executing|running|deleting|modifying|creating)\s+.{0,30}(file|database|system|server)",
+            r"(i\s+have\s+)?(accessed|modified|deleted|changed)\s+.{0,30}(your|the)\s+(file|data|record)",
+            r"installing\s+(package|library|software|malware)",
         ],
         "instruction_propagation": [
-            r"(tell|instruct|command|order)\s+.{0,20}(other\s+)?(agent|bot|assistant|model)\s+to",
-            r"new\s+instructions?\s+for\s+(all|every|other)\s+(agent|bot)",
-            r"forward\s+these\s+instructions?\s+to",
-            r"(propagate|spread|broadcast)\s+.{0,20}(this|these)\s+(instruction|command|rule)",
+            r"(tell|instruct|command|order)\s+.{0,20}(other\s+)?(agent|bot|assistant|model)\s+to",
+            r"new\s+instructions?\s+for\s+(all|every|other)\s+(agent|bot)",
+            r"forward\s+these\s+instructions?\s+to",
+            r"(propagate|spread|broadcast)\s+.{0,20}(this|these)\s+(instruction|command|rule)",
         ],
         "tool_abuse": [
-            r"(calling|invoking|executing)\s+(unauthorized|restricted|forbidden)\s+(tool|function|api)",
-            r"bypass(ing)?\s+(tool|function|api)\s+(restriction|limit|control)",
+            r"(calling|invoking|executing)\s+(unauthorized|restricted|forbidden)\s+(tool|function|api)",
+            r"bypass(ing)?\s+(tool|function|api)\s+(restriction|limit|control)",
             r"subprocess\.|os\.system|eval\(|exec\(",
         ],
         "deception": [
-            r"(pretend|fake|simulate|disguise)\s+(that|this|the)\s+(result|output|response)",
-            r"don'?t\s+(tell|inform|notify|mention)\s+(the\s+)?(user|human|operator)",
-            r"hide\s+(this|the|that)\s+(from|action|result|output)",
+            r"(pretend|fake|simulate|disguise)\s+(that|this|the)\s+(result|output|response)",
+            r"don'?t\s+(tell|inform|notify|mention)\s+(the\s+)?(user|human|operator)",
+            r"hide\s+(this|the|that)\s+(from|action|result|output)",
         ],
         "pii_exposure": [
             r"\d{3}-\d{2}-\d{4}",                                       # SSN con guiones
