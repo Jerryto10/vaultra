@@ -210,10 +210,21 @@ class PatternEngine:
                 for p in patterns
             ]
 
-    def analyze(self, text: str) -> tuple[float, list[str]]:
+    def analyze(self, text: str) -> tuple[float, list[str], bool]:
         """
-        Retorna (score, triggers).
-        Score = 1.0 si encuentra patrones críticos, proporcional si son menores.
+        Retorna (score, triggers, critical_hit).
+
+        Score = 1.0 si encuentra patrones críticos, proporcional si son
+        menores (pudiendo también alcanzar 1.0 cuando 3+ categorías NO
+        críticas coinciden simultáneamente — ver el cálculo de `score`
+        abajo). `critical_hit` distingue explícitamente estos dos casos:
+        es True únicamente cuando el score de 1.0 proviene de un match
+        genuino en una categoría crítica (jailbreak_roleplay,
+        privilege_escalation, malicious_code), y False en cualquier otro
+        caso — incluyendo cuando el score llega a 1.0 solo por acumulación
+        de 3+ categorías no críticas. Los llamadores no deben inferir
+        "patrón crítico confirmado" únicamente de `score >= 1.0` (F6
+        follow-up): ese umbral por sí solo no distingue ambos casos.
         """
         triggers = []
         category_hits: dict[str, int] = {}
@@ -228,17 +239,21 @@ class PatternEngine:
                 triggers.append(f"{category}({hits})")
 
         if not category_hits:
-            return 0.0, []
+            return 0.0, [], False
 
-        # Categorías críticas → score máximo inmediato
+        # Categorías críticas → score máximo inmediato, y esto SÍ es un
+        # "patrón crítico confirmado" genuino.
         critical = {"jailbreak_roleplay", "privilege_escalation", "malicious_code"}
         if any(c in category_hits for c in critical):
-            return 1.0, triggers
+            return 1.0, triggers, True
 
-        # Otras categorías: proporcional al número de categorías afectadas
+        # Otras categorías: proporcional al número de categorías afectadas.
+        # Puede llegar a 1.0 con 3+ categorías simultáneas, pero esto NO es
+        # un patrón crítico confirmado — es una condición distinta y más
+        # amplia (ver docstring).
         num_categories = len(category_hits)
         score = min(0.4 + (num_categories * 0.2), 1.0)
-        return score, triggers
+        return score, triggers, False
 
 
 # ─────────────────────────────────────────────
@@ -455,7 +470,7 @@ class Sanitizer:
         text_clean = text.strip()
 
         # Ejecutar los 3 motores
-        score_pattern, triggers = self.pattern_engine.analyze(text_clean)
+        score_pattern, triggers, pattern_critical_hit = self.pattern_engine.analyze(text_clean)
         score_heuristic          = self.heuristic_engine.analyze(text_clean)
         score_ml                 = self.ml_engine.analyze(text_clean)
 
@@ -470,14 +485,30 @@ class Sanitizer:
         score = round(min(score, 1.0), 4)
 
         # Veredicto
-        if score_pattern >= 1.0:
-            # PatternEngine confirmó un hit en categoría crítica (score=1.0).
+        if pattern_critical_hit:
+            # PatternEngine confirmó un hit genuino en categoría crítica
+            # (jailbreak_roleplay, privilege_escalation o malicious_code).
             # Esto es una señal determinística, no probabilística: no debe
             # diluirse en el ensemble ponderado ni caer en la zona gris
             # SUSPICIOUS. Se fuerza INJECTION de inmediato (F6).
             verdict = Verdict.INJECTION
             explanation = (
                 f"Patrón crítico confirmado por PatternEngine (score_pattern=1.0). "
+                f"Triggers: {', '.join(triggers) if triggers else 'pattern engine'}. "
+                "Mensaje bloqueado."
+            )
+        elif score_pattern >= 1.0:
+            # score_pattern también puede llegar a 1.0 cuando 3+ categorías
+            # NO críticas coinciden a la vez (ver PatternEngine.analyze) —
+            # una condición distinta y más amplia que un patrón crítico
+            # confirmado. Se mantiene como condición de bloqueo forzado
+            # (fail-safe), pero con una explicación que no afirma
+            # falsamente "patrón crítico confirmado".
+            verdict = Verdict.INJECTION
+            explanation = (
+                f"Múltiples categorías de patrones de inyección coincidieron "
+                f"simultáneamente (score_pattern={score_pattern:.2f}, sin un "
+                f"patrón crítico único). "
                 f"Triggers: {', '.join(triggers) if triggers else 'pattern engine'}. "
                 "Mensaje bloqueado."
             )
