@@ -116,16 +116,32 @@ Done via Claude Code plugins: security-guidance, code-review, supabase, playwrig
 - ✅ GitHub PAT rotated (fine-grained, `Contents: Read and write`), stored via macOS Keychain credential helper — no more plaintext token in remote URL
 - ✅ Git history scrubbed with `git-filter-repo` — the old rotated admin password (exposed in a public repo) removed from all commits, force-pushed, Hetzner clone resynced via `fetch` + `reset --hard`
 
+### Resolved (Aug 2, 2026) — Security Hardening Phase 1 (post-scan, 28-finding audit)
+Full plan: `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Executed via subagent-driven development (11 task-level reviews + 1 final whole-branch review, all clean or resolved via fix loop). Merged to `main` (13 commits, `89e6476..ec5bf2a`), 42/42 tests passing. Not yet pushed to origin/Hetzner — pending explicit go-ahead (push triggers auto-deploy).
+- ✅ **F6** — sanitizer.py: a confirmed-critical PatternEngine hit now forces an immediate INJECTION verdict (previously diluted into SUSPICIOUS by the weighted ensemble); refined post-review so the short-circuit only fires on a genuine critical-category hit, not 3+ stacked non-critical categories.
+- ✅ **F14** — guardian.py: PII exposure detection in `OfflineGuard` no longer silently suppressed based on declared scope (`send_email`/`send_message`/`share`).
+- ✅ **F20** — human_gate.py: the approval token is no longer handed back to the requester (was enabling self-approval of irreversible actions); `decide()` now rejects a `decided_by` matching the requesting agent.
+- ✅ **F22** — pipeline.py: Layers 2 (sanitizer) and 4 (guardian) now fail **closed** (raise `ComplianceViolation`) on an analyzer exception, instead of silently marking the layer failed and returning a passing receipt.
+- ✅ **New finding (found mid-fix, not in original scan)** — guardian.py's entire pattern dict had ~20 of 25 regex patterns silently broken by stray literal backspace bytes (`\x08`) since the file's first commit, across 6 risk categories (only `pii_exposure` had been partially caught before). All stripped; `OfflineGuard`'s offline pattern-based detection is now fully functional for the first time in production.
+- ✅ **F21 — full fix** (originally scoped as backlog-only; user requested the complete fix, not a deferral): Ed25519 identity is no longer ephemeral/unverifiable.
+  - SDK (`vaultra/identity.py`) persists its keypair locally (`~/.vaultra/keys/<agent_id>.pem`, 0600) instead of regenerating per process; transmits `identity_signature`/`identity_fingerprint`/`identity_public_key` with every receipt.
+  - `admin/app.py` gained `agent_keys` + `agent_key_conflicts` tables: the first public key seen per `(client_id, agent_id)` is trusted (safe — that request is already authenticated by an admin-issued `api_key`, no unauthenticated squatting window); a later *different* key goes to a pending conflict instead of silently overwriting.
+  - New admin UI (`/agent-keys`) to review/approve/reject pending key conflicts (deduped by `client_id`+`agent_id`+key).
+  - `/api/verify/<rid>` now performs real Ed25519 signature verification against the registered key and exposes `identity_verified: bool` — kept separate from `rfc3161_valid`/`eidas_art41`. The trust decision rests solely on the cryptographic signature check, never on the client-supplied fingerprint string.
+
 ### Non-critical findings (medium/low priority, not yet fixed)
 - Ledger hash chain has no lock under concurrency (possible fork under high load)
 - No retry logic on HTTP calls to the TSA
-- CSV formula injection — partially mitigated by `sanitize_text`, needs review
+- CSV formula injection (F7/F8) — Phase 2 of the hardening plan, not yet started
 - Future migration SQLite → PostgreSQL/Supabase when volume grows
 - No MFA/2FA
 - Audit log capped at 200 rows, no pagination
 - Stale "DigiCert" branding in some admin templates and `health_check.html` (references retired infra)
 - No Playwright E2E tests yet
-- **Human Gate approval flow is ephemeral** — `HumanGate.decide(token, ...)` only resolves a pending request held in that same Python process's in-memory `_pending` dict. Once the agent process exits, the token is gone — there's no durable admin.vaultra.io view to list/approve/reject pending DELETE/TRANSFER/IRREVERSIBLE requests after the fact. Found during the Jul 26 KYC E2E test (see below). Needs a real design: persist pending approvals to the DB, add an admin route to list/decide them.
+- **Human Gate approval flow is ephemeral** — `HumanGate.decide(token, ...)` only resolves a pending request held in that same Python process's in-memory `_pending` dict. Once the agent process exits, the token is gone — there's no durable admin.vaultra.io view to list/approve/reject pending DELETE/TRANSFER/IRREVERSIBLE requests after the fact. Found during the Jul 26 KYC E2E test (see below). Needs a real design: persist pending approvals to the DB, add an admin route to list/decide them. (Note: this is a *different* gap than F21's key-conflict admin UI, which is now built.)
+- `portal/app.py`'s receipt detail view doesn't surface `identity_verified` (or any genuinely-computed verification field) — found during the F21 fix, portal has no F1-style verification surface at all today.
+- `admin/app.py`'s `receive_receipt` runs `agent_id` through `sanitize_text(max_length=100)` before storing, same as `decision` — a second (safe-direction only) source of `identity_verified: false` false-negatives if `agent_id` is unusually long or contains `<`/`>`. Found during the F21 fix.
+- Remaining Phase 2–4 of the security hardening plan (admin/portal bcrypt hardening, session revocation, rate-limit proxy trust, CSV injection, constant-time token compare, logout CSRF, cookie flags, timing-based enumeration, CI action pinning, infra details in tracked files) — see the plan file for the full task list.
 
 ---
 
@@ -181,14 +197,20 @@ Workflow: user gives instructions in chat → instructions get transcribed as a 
 
 ## Pending Tasks (Priority Order)
 
+### ✅ Done (Aug 2, 2026)
+- Security Hardening Phase 1 (F6, F14, F20, F22, F21 full fix, + the mid-fix guardian.py regex-corruption finding) — see Security section above for details. Merged to `main` locally (13 commits, 42/42 tests); **not yet pushed to origin** (push triggers Hetzner auto-deploy — needs explicit go-ahead).
+- **Immediate next decision needed:** (a) push to origin/main to deploy Phase 1 to production, (b) whether to bump the SDK version (currently 2.0.2 published; F6/F22's fail-closed changes are user-visible behavior changes for existing integrators — plan's own Final Verification section flags this as a 2.0.3-vs-2.1.0 call) before the next PyPI publish, and (c) whether to continue directly into Phase 2 (admin/portal fixes) in a follow-up session.
+
 ### ✅ Done (Jul 26, 2026)
 - Real end-to-end test with an external AI agent — built `demo_kyc_agent.py` (gitignored, distinct from `demo_credit_agent.py`), created a real test client + API key in the production DB, ran 5 cases against `admin.vaultra.io` live: normal approve, sanctions/watchlist reject, low document quality review, a genuine prompt-injection attempt (correctly **blocked by Layer 2**, no receipt generated, logged as `INJECTION_ATTEMPT`), and a GDPR Art. 17 erasure request (correctly **blocked by Layer 5 Human Gate** as a CRITICAL `DELETE` action, receipt generated in `pending` state at 6/7 layers). All 4 non-blocked receipts confirmed stamped (RFC 3161) and `status=valid` in the production `receipts` table. Surfaced one product gap — see "Human Gate approval flow is ephemeral" in Security findings above.
 
 ### 🟡 Important — next session
-1. Design + build a durable Human Gate approval flow (persist pending DELETE/TRANSFER/IRREVERSIBLE requests to DB, add admin.vaultra.io view to approve/reject) — gap found during the KYC E2E test
-2. Stripe — automated payments and subscriptions
-3. Resend — transactional email (invitations, quota alerts)
-4. Contact rUv (creator of Ruflo, github.com/ruvnet/ruflo, 64K stars) in English to explore an official `ruflo-vaultra` plugin — model: free/open-source plugin that connects to Vaultra's paid backend
+1. Push Phase 1 to origin/main (deploy to Hetzner) once ready, and decide the version bump before the next PyPI publish
+2. Security Hardening Phase 2 — admin/portal backend fixes (bcrypt hardening, session revocation, rate-limit proxy trust, CSV injection, constant-time token compare) — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`
+3. Design + build a durable Human Gate approval flow (persist pending DELETE/TRANSFER/IRREVERSIBLE requests to DB, add admin.vaultra.io view to approve/reject) — gap found during the KYC E2E test, distinct from F21's key-conflict admin UI (already built)
+4. Stripe — automated payments and subscriptions
+5. Resend — transactional email (invitations, quota alerts)
+6. Contact rUv (creator of Ruflo, github.com/ruvnet/ruflo, 64K stars) in English to explore an official `ruflo-vaultra` plugin — model: free/open-source plugin that connects to Vaultra's paid backend
 
 ### 🟢 Legal / Commercial
 5. Letter to employer (Nebentätigkeit §2 authorization) — not expected to be a problem
