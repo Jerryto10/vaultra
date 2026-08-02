@@ -263,3 +263,205 @@ def test_invalid_api_key_rejected(admin_app_module, client):
     resp = _post_receipt(client, "not-a-real-key", agent_id="agent-1")
     assert resp.status_code == 401
     assert resp.get_json()["success"] is False
+
+
+# ── Task 1.9 (F21 3/4): admin UI to list/approve/reject pending key
+# conflicts filed by the receive_receipt() differ-branch above. ──────────
+
+CSRF_TOKEN = "test-only-csrf-token"
+
+
+def _login_as_admin(client, username="alice", role="admin"):
+    """Simulate an authenticated admin-panel session directly via Flask's
+    test-client session transaction, mirroring how login_required/
+    admin_required read session['admin_id']/['role'] (admin/app.py ~lines
+    469-490). Also seeds a known csrf_token so POSTs can satisfy
+    enforce_csrf() (admin/app.py ~line 106) by echoing it back as the
+    X-CSRF-Token header — /agent-keys/<id>/resolve is a mutating route and
+    is not in CSRF_EXEMPT_PATHS."""
+    with client.session_transaction() as sess:
+        sess["admin_id"] = str(uuid.uuid4())
+        sess["username"] = username
+        sess["role"] = role
+        sess["csrf_token"] = CSRF_TOKEN
+        sess["last_active"] = time.time()
+
+
+def _seed_agent_key(admin_app_module, client_id, agent_id, public_key, fingerprint, now=None):
+    now = now if now is not None else time.time()
+    conn = sqlite3.connect(admin_app_module.DB_PATH)
+    try:
+        conn.execute(
+            """INSERT INTO agent_keys
+               (client_id, agent_id, public_key, fingerprint, status,
+                first_seen, last_seen)
+               VALUES (?, ?, ?, ?, 'active', ?, ?)""",
+            (client_id, agent_id, public_key, fingerprint, now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _seed_conflict(admin_app_module, client_id, agent_id, existing_key,
+                    incoming_key, incoming_fingerprint, receipt_id=None,
+                    created_at=None, status="pending"):
+    conflict_id = str(uuid.uuid4())
+    created_at = created_at if created_at is not None else time.time()
+    conn = sqlite3.connect(admin_app_module.DB_PATH)
+    try:
+        conn.execute(
+            """INSERT INTO agent_key_conflicts
+               (id, client_id, agent_id, existing_public_key,
+                incoming_public_key, incoming_fingerprint, receipt_id,
+                status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (conflict_id, client_id, agent_id, existing_key, incoming_key,
+             incoming_fingerprint, receipt_id, status, created_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return conflict_id
+
+
+def test_resolve_approve_updates_agent_keys_and_resolves_conflict(admin_app_module, client):
+    client_id, _ = _make_client_row(admin_app_module)
+    _seed_agent_key(admin_app_module, client_id, "agent-1", PUB_KEY_A, FINGERPRINT_A)
+    conflict_id = _seed_conflict(
+        admin_app_module, client_id, "agent-1",
+        existing_key=PUB_KEY_A, incoming_key=PUB_KEY_B,
+        incoming_fingerprint=FINGERPRINT_B, receipt_id="rid-1",
+    )
+
+    _login_as_admin(client)
+    resp = client.post(
+        f"/agent-keys/{conflict_id}/resolve",
+        json={"action": "approve"},
+        headers={"X-CSRF-Token": CSRF_TOKEN},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+    key_row = _agent_keys_row(admin_app_module, client_id, "agent-1")
+    assert key_row["public_key"] == PUB_KEY_B
+    assert key_row["fingerprint"] == FINGERPRINT_B
+    assert key_row["status"] == "active"
+
+    conflicts = _conflict_rows(admin_app_module, client_id, "agent-1")
+    assert len(conflicts) == 1
+    assert conflicts[0]["status"] == "resolved"
+    assert conflicts[0]["resolved_at"] is not None
+    assert conflicts[0]["resolved_by"] == "alice"
+
+
+def test_resolve_reject_leaves_agent_keys_untouched(admin_app_module, client):
+    client_id, _ = _make_client_row(admin_app_module)
+    _seed_agent_key(admin_app_module, client_id, "agent-1", PUB_KEY_A, FINGERPRINT_A)
+    conflict_id = _seed_conflict(
+        admin_app_module, client_id, "agent-1",
+        existing_key=PUB_KEY_A, incoming_key=PUB_KEY_B,
+        incoming_fingerprint=FINGERPRINT_B, receipt_id="rid-2",
+    )
+
+    _login_as_admin(client)
+    resp = client.post(
+        f"/agent-keys/{conflict_id}/resolve",
+        json={"action": "reject"},
+        headers={"X-CSRF-Token": CSRF_TOKEN},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+    key_row = _agent_keys_row(admin_app_module, client_id, "agent-1")
+    assert key_row["public_key"] == PUB_KEY_A  # untouched
+    assert key_row["fingerprint"] == FINGERPRINT_A
+
+    conflicts = _conflict_rows(admin_app_module, client_id, "agent-1")
+    assert len(conflicts) == 1
+    assert conflicts[0]["status"] == "resolved"
+    assert conflicts[0]["resolved_by"] == "alice"
+
+
+def test_resolve_group_resolves_all_duplicate_pending_rows(admin_app_module, client):
+    """Carry-forward from Task 1.8's review: a replayed leaked api_key can
+    file many duplicate pending rows for the same (client_id, agent_id,
+    incoming_public_key). Resolving via any one of their ids must resolve
+    the whole group, not just the row whose id was passed."""
+    client_id, _ = _make_client_row(admin_app_module)
+    _seed_agent_key(admin_app_module, client_id, "agent-1", PUB_KEY_A, FINGERPRINT_A)
+    ids = [
+        _seed_conflict(
+            admin_app_module, client_id, "agent-1",
+            existing_key=PUB_KEY_A, incoming_key=PUB_KEY_B,
+            incoming_fingerprint=FINGERPRINT_B, receipt_id=f"rid-dup-{i}",
+            created_at=time.time() + i,
+        )
+        for i in range(3)
+    ]
+    # An unrelated conflict for a different agent must not be touched.
+    other_conflict_id = _seed_conflict(
+        admin_app_module, client_id, "agent-2",
+        existing_key=PUB_KEY_A, incoming_key=PUB_KEY_B,
+        incoming_fingerprint=FINGERPRINT_B, receipt_id="rid-other",
+    )
+
+    _login_as_admin(client)
+    resp = client.post(
+        f"/agent-keys/{ids[0]}/resolve",
+        json={"action": "reject"},
+        headers={"X-CSRF-Token": CSRF_TOKEN},
+    )
+    assert resp.status_code == 200
+
+    resolved = _conflict_rows(admin_app_module, client_id, "agent-1")
+    assert len(resolved) == 3
+    assert all(r["status"] == "resolved" for r in resolved)
+
+    untouched = _conflict_rows(admin_app_module, client_id, "agent-2")
+    assert len(untouched) == 1
+    assert untouched[0]["id"] == other_conflict_id
+    assert untouched[0]["status"] == "pending"
+
+
+def test_agent_keys_list_groups_duplicate_pending_conflicts(admin_app_module, client):
+    client_id, _ = _make_client_row(admin_app_module)
+    _seed_agent_key(admin_app_module, client_id, "agent-1", PUB_KEY_A, FINGERPRINT_A)
+    for i in range(3):
+        _seed_conflict(
+            admin_app_module, client_id, "agent-1",
+            existing_key=PUB_KEY_A, incoming_key=PUB_KEY_B,
+            incoming_fingerprint=FINGERPRINT_B, receipt_id=f"rid-{i}",
+            created_at=time.time() + i,
+        )
+
+    _login_as_admin(client)
+    resp = client.get("/agent-keys")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # One collapsed row for the 3 duplicate pending conflicts (only one
+    # "row-<id>" table row), showing a count rather than 3 separate
+    # identical entries.
+    assert body.count('id="row-') == 1
+    assert "agent-1" in body
+
+
+def test_resolve_requires_admin_role(admin_app_module, client):
+    client_id, _ = _make_client_row(admin_app_module)
+    _seed_agent_key(admin_app_module, client_id, "agent-1", PUB_KEY_A, FINGERPRINT_A)
+    conflict_id = _seed_conflict(
+        admin_app_module, client_id, "agent-1",
+        existing_key=PUB_KEY_A, incoming_key=PUB_KEY_B,
+        incoming_fingerprint=FINGERPRINT_B,
+    )
+
+    _login_as_admin(client, username="bob", role="support")
+    resp = client.post(
+        f"/agent-keys/{conflict_id}/resolve",
+        json={"action": "approve"},
+        headers={"X-CSRF-Token": CSRF_TOKEN},
+    )
+    assert resp.status_code == 403
+
+    conflicts = _conflict_rows(admin_app_module, client_id, "agent-1")
+    assert conflicts[0]["status"] == "pending"

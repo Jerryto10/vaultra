@@ -891,6 +891,107 @@ def audit_log():
         role=session.get("role"),
     )
 
+@app.route("/agent-keys")
+@admin_required
+def agent_keys():
+    """F21 (3/4): review queue for pending agent_key_conflicts.
+
+    A leaked/replayed api_key can cause the same conflicting incoming key to
+    be filed as a *new* pending row on every subsequent receipt (Task 1.8's
+    differ-branch has no dedup on (client_id, agent_id, incoming_public_key)).
+    To avoid an admin having to click through N identical rows, pending
+    conflicts are grouped by that triple: SQLite's documented "bare column"
+    behavior (exactly one MAX() aggregate in the query) means the non-
+    aggregated columns below are taken from the row that produced the max
+    created_at within each group, so each group surfaces its most recent
+    receipt_id/id/fingerprint alongside a count of how many pending rows it
+    collapses. Resolving a group (see resolve_agent_key_conflict) acts on
+    every underlying pending row for that triple, not just the one whose id
+    is shown here.
+    """
+    db = get_db()
+    rows = db.execute("""
+        SELECT g.id, g.client_id, g.agent_id, g.existing_public_key,
+               g.incoming_public_key, g.incoming_fingerprint, g.receipt_id,
+               g.created_at, g.pending_count, c.company_name
+        FROM (
+            SELECT id, client_id, agent_id, existing_public_key,
+                   incoming_public_key, incoming_fingerprint, receipt_id,
+                   MAX(created_at) AS created_at, COUNT(*) AS pending_count
+            FROM agent_key_conflicts
+            WHERE status = 'pending'
+            GROUP BY client_id, agent_id, incoming_public_key
+        ) g
+        JOIN clients c ON c.id = g.client_id
+        ORDER BY g.created_at DESC
+    """).fetchall()
+    return render_template("agent_keys.html",
+        conflicts=rows,
+        username=session.get("username"),
+        role=session.get("role"),
+    )
+
+@app.route("/agent-keys/<conflict_id>/resolve", methods=["POST"])
+@admin_required
+def resolve_agent_key_conflict(conflict_id):
+    """Approve or reject a pending agent key conflict (F21 3/4).
+
+    approve: the incoming key becomes the trusted key for (client_id,
+    agent_id) in agent_keys (replacing the previously-enrolled key, status
+    reset to 'active').
+    reject: agent_keys is left untouched — the originally-enrolled key
+    remains trusted and the incoming key is not adopted.
+
+    Either way every pending agent_key_conflicts row that shares this
+    conflict's (client_id, agent_id, incoming_public_key) is marked
+    resolved together (see the dedup note on the agent_keys() list route
+    above), not just the single row identified by conflict_id.
+    """
+    data = request.get_json(silent=True) or request.form or {}
+    action = (data.get("action") or "").strip().lower()
+    if action not in ("approve", "reject"):
+        return jsonify({"error": "action must be 'approve' or 'reject'"}), 400
+
+    db = get_db()
+    conflict = db.execute(
+        "SELECT * FROM agent_key_conflicts WHERE id=? AND status='pending'",
+        (conflict_id,)
+    ).fetchone()
+    if conflict is None:
+        return jsonify({"error": "Pending conflict not found"}), 404
+
+    client_id = conflict["client_id"]
+    agent_id = conflict["agent_id"]
+    incoming_public_key = conflict["incoming_public_key"]
+    incoming_fingerprint = conflict["incoming_fingerprint"]
+    now = time.time()
+    resolved_by = session.get("username", "system")
+
+    if action == "approve":
+        db.execute(
+            """UPDATE agent_keys
+               SET public_key=?, fingerprint=?, status='active', last_seen=?
+               WHERE client_id=? AND agent_id=?""",
+            (incoming_public_key, incoming_fingerprint, now, client_id, agent_id)
+        )
+
+    db.execute(
+        """UPDATE agent_key_conflicts
+           SET status='resolved', resolved_at=?, resolved_by=?
+           WHERE client_id=? AND agent_id=? AND incoming_public_key=?
+             AND status='pending'""",
+        (now, resolved_by, client_id, agent_id, incoming_public_key)
+    )
+    db.commit()
+
+    log_action(
+        "APPROVE_AGENT_KEY" if action == "approve" else "REJECT_AGENT_KEY",
+        target=f"{client_id}:{agent_id}",
+        details=f"fingerprint={incoming_fingerprint}"
+    )
+
+    return jsonify({"success": True})
+
 @app.route("/api/metrics")
 @login_required
 def api_metrics():

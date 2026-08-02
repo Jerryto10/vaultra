@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Agent Key Conflicts{% endblock %}
+{% block page_title %}Agent Key Conflicts{% endblock %}
+
+{% block content %}
+<div class="alert" id="page-alert"></div>
+
+<div class="panel">
+  <div class="panel-header">
+    <div class="panel-title">PENDING IDENTITY-TRUST CONFLICTS — GROUPED BY CLIENT / AGENT / INCOMING KEY</div>
+    <span class="badge bm">{{ conflicts|length }} pending</span>
+  </div>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>CLIENT</th>
+        <th>AGENT ID</th>
+        <th>ENROLLED KEY</th>
+        <th>INCOMING KEY</th>
+        <th>FINGERPRINT</th>
+        <th>COUNT</th>
+        <th>LATEST RECEIPT</th>
+        <th>LATEST SEEN</th>
+        <th>ACTIONS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in conflicts %}
+      <tr id="row-{{ c.id }}">
+        <td style="font-weight:600;color:var(--gold)">{{ c.company_name }}</td>
+        <td class="mono" style="font-size:0.66rem">{{ c.agent_id }}</td>
+        <td class="mono" style="font-size:0.6rem;color:var(--muted)">
+          <span title="{{ c.existing_public_key }}">{{ c.existing_public_key[:16] }}…</span>
+        </td>
+        <td class="mono" style="font-size:0.6rem;color:var(--gold)">
+          <span title="{{ c.incoming_public_key }}">{{ c.incoming_public_key[:16] }}…</span>
+        </td>
+        <td class="mono" style="font-size:0.6rem;color:var(--muted)">{{ c.incoming_fingerprint }}</td>
+        <td><span class="badge {% if c.pending_count > 1 %}bo{% else %}bm{% endif %}">×{{ c.pending_count }}</span></td>
+        <td class="mono" style="font-size:0.62rem;color:var(--muted)">{{ c.receipt_id or '—' }}</td>
+        <td class="mono" style="font-size:0.6rem;color:var(--muted)">{{ fmt_date(c.created_at) }}</td>
+        <td>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;">
+            <button class="btn btn-gold" onclick="resolveConflict('{{ c.id }}','approve')">Approve</button>
+            <button class="btn btn-danger" onclick="resolveConflict('{{ c.id }}','reject')">Reject</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not conflicts %}
+      <tr><td colspan="9" class="mono" style="color:var(--muted);text-align:center;padding:24px;">No pending conflicts — every enrolled agent key matches its most recent receipt.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function showPageAlert(type,msg){ const el=document.getElementById('page-alert'); el.className='alert '+type; el.textContent=msg; el.style.display='block'; setTimeout(()=>el.style.display='none',4000); }
+
+  async function resolveConflict(id, action){
+    const verb = action === 'approve' ? 'Approve' : 'Reject';
+    const warning = action === 'approve'
+      ? 'Approve this key? The incoming key becomes the trusted key for this agent, replacing the previously enrolled one.'
+      : 'Reject this key? The previously enrolled key remains trusted; the incoming key will not be adopted.';
+    if(!confirm(warning)) return;
+    const res = await fetch(`/agent-keys/${id}/resolve`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({action})
+    });
+    const data = await res.json();
+    if(data.success){
+      showPageAlert('success', `${verb}d — conflict resolved.`);
+      setTimeout(()=>location.reload(), 1200);
+    } else {
+      showPageAlert('error', data.error || 'Error resolving conflict.');
+    }
+  }
+</script>
+{% endblock %}
