@@ -117,7 +117,7 @@ Done via Claude Code plugins: security-guidance, code-review, supabase, playwrig
 - ✅ Git history scrubbed with `git-filter-repo` — the old rotated admin password (exposed in a public repo) removed from all commits, force-pushed, Hetzner clone resynced via `fetch` + `reset --hard`
 
 ### Resolved (Aug 2, 2026) — Security Hardening Phase 1 (post-scan, 28-finding audit)
-Full plan: `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Executed via subagent-driven development (11 task-level reviews + 1 final whole-branch review, all clean or resolved via fix loop). Merged to `main` (13 commits, `89e6476..ec5bf2a`), 42/42 tests passing. Not yet pushed to origin/Hetzner — pending explicit go-ahead (push triggers auto-deploy).
+Full plan: `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Executed via subagent-driven development (11 task-level reviews + 1 final whole-branch review, all clean or resolved via fix loop). Merged to `main` (13 commits, `89e6476..ec5bf2a`), 42/42 tests passing. Pushed to origin and deployed to Hetzner (both `vaultra`/`vaultra-portal` services confirmed active on the new commit).
 - ✅ **F6** — sanitizer.py: a confirmed-critical PatternEngine hit now forces an immediate INJECTION verdict (previously diluted into SUSPICIOUS by the weighted ensemble); refined post-review so the short-circuit only fires on a genuine critical-category hit, not 3+ stacked non-critical categories.
 - ✅ **F14** — guardian.py: PII exposure detection in `OfflineGuard` no longer silently suppressed based on declared scope (`send_email`/`send_message`/`share`).
 - ✅ **F20** — human_gate.py: the approval token is no longer handed back to the requester (was enabling self-approval of irreversible actions); `decide()` now rejects a `decided_by` matching the requesting agent.
@@ -129,10 +129,17 @@ Full plan: `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Ex
   - New admin UI (`/agent-keys`) to review/approve/reject pending key conflicts (deduped by `client_id`+`agent_id`+key).
   - `/api/verify/<rid>` now performs real Ed25519 signature verification against the registered key and exposes `identity_verified: bool` — kept separate from `rfc3161_valid`/`eidas_art41`. The trust decision rests solely on the cryptographic signature check, never on the client-supplied fingerprint string.
 
+### Resolved (Aug 2, 2026) — Security Hardening Phase 2 (admin/portal backend fixes)
+Same plan, Phase 2. Executed via subagent-driven development (5 task-level reviews + 1 final whole-branch review + 1 fix loop mid-task + 1 final-review fix wave). Merged to `main` (7 commits, `7134967..b8630fa`), 90/90 tests passing. Pushed to origin and deployed to Hetzner.
+- ✅ **F24 + F25** — bcrypt is now a hard startup dependency in both admin/app.py and portal/app.py (mirrors the `SECRET_KEY` fail-closed pattern); the SHA-256 password fallback is fully removed. Confirmed against the live production DB beforehand: zero legacy SHA-256 hashes existed, so no migration/reset flow was needed.
+- ✅ **F11** — admin sessions now revoke on user deletion (fresh existence check every request) and password change (`session_version` column, bumped and compared per-request); added an absolute 8h session lifetime alongside the existing 30-min idle timeout.
+- ✅ **F9 + F10** — `ProxyFix(x_for=1)` wired into both apps (confirmed against the live single-hop nginx config); login rate limiting now uses two independent counters (per-IP and per-identifier) evaluated with OR, closing both the "one IP locks out everyone" and "one account attacked from many IPs" gaps. **Two rounds of review-driven hardening on this one:** the first implementation replaced IP-keying with identifier-only keying, which task review caught as a Critical account-lockout DoS (anyone could lock the real `admin` out from anywhere with zero password knowledge) — fixed by restoring the per-IP dimension. The final whole-branch review then flagged a residual risk (shared threshold of 5 on both dimensions still let a distributed attacker lock out a known account) — fixed by splitting into asymmetric thresholds (IP cap stays at 5, identifier cap raised to 20).
+- ✅ **F7 + F8** — CSV formula injection neutralized in both apps' `report_csv` exports via a `csv_safe()` helper (prefixes cells starting with `= + - @`/tab/CR with `'`), covering every column.
+- ✅ **F23** — `portal/app.py`'s `/api/invite` token comparison switched from `!=` to `hmac.compare_digest`, fail-closed guard preserved.
+
 ### Non-critical findings (medium/low priority, not yet fixed)
 - Ledger hash chain has no lock under concurrency (possible fork under high load)
 - No retry logic on HTTP calls to the TSA
-- CSV formula injection (F7/F8) — Phase 2 of the hardening plan, not yet started
 - Future migration SQLite → PostgreSQL/Supabase when volume grows
 - No MFA/2FA
 - Audit log capped at 200 rows, no pagination
@@ -141,7 +148,10 @@ Full plan: `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Ex
 - **Human Gate approval flow is ephemeral** — `HumanGate.decide(token, ...)` only resolves a pending request held in that same Python process's in-memory `_pending` dict. Once the agent process exits, the token is gone — there's no durable admin.vaultra.io view to list/approve/reject pending DELETE/TRANSFER/IRREVERSIBLE requests after the fact. Found during the Jul 26 KYC E2E test (see below). Needs a real design: persist pending approvals to the DB, add an admin route to list/decide them. (Note: this is a *different* gap than F21's key-conflict admin UI, which is now built.)
 - `portal/app.py`'s receipt detail view doesn't surface `identity_verified` (or any genuinely-computed verification field) — found during the F21 fix, portal has no F1-style verification surface at all today.
 - `admin/app.py`'s `receive_receipt` runs `agent_id` through `sanitize_text(max_length=100)` before storing, same as `decision` — a second (safe-direction only) source of `identity_verified: false` false-negatives if `agent_id` is unusually long or contains `<`/`>`. Found during the F21 fix.
-- Remaining Phase 2–4 of the security hardening plan (admin/portal bcrypt hardening, session revocation, rate-limit proxy trust, CSV injection, constant-time token compare, logout CSRF, cookie flags, timing-based enumeration, CI action pinning, infra details in tracked files) — see the plan file for the full task list.
+- `portal/app.py`'s `create_invitation` (F23) trusts the submitted `client_id` blindly after validating `PORTAL_ADMIN_TOKEN` — requires an already-serious compromise (leaked admin token) to reach; found during Phase 2's final review, explicitly out of Task 2.5's scope.
+- Cosmetic: admin's login route returns HTTP 429 on rate-limit rejection, portal's returns 200 with an inline error message. Both are safe.
+- The per-identifier login rate-limit cap (20) is a flat cutoff, not backoff/CAPTCHA/alerting — a sufficiently distributed attacker (20+ IPs) can still sustain a lockout against a known account at ~4x the pre-fix cost. Future hardening: exponential backoff or alerting on repeated identifier-dimension trips against sensitive accounts.
+- Remaining Phase 3–4 of the security hardening plan (logout CSRF, cookie flags, timing-based enumeration, CI action pinning, infra details in tracked files) — see the plan file for the full task list. Phases 1 and 2 are now both done.
 
 ---
 
@@ -198,19 +208,19 @@ Workflow: user gives instructions in chat → instructions get transcribed as a 
 ## Pending Tasks (Priority Order)
 
 ### ✅ Done (Aug 2, 2026)
-- Security Hardening Phase 1 (F6, F14, F20, F22, F21 full fix, + the mid-fix guardian.py regex-corruption finding) — see Security section above for details. Merged to `main` locally (13 commits, 42/42 tests); **not yet pushed to origin** (push triggers Hetzner auto-deploy — needs explicit go-ahead).
-- **Immediate next decision needed:** (a) push to origin/main to deploy Phase 1 to production, (b) whether to bump the SDK version (currently 2.0.2 published; F6/F22's fail-closed changes are user-visible behavior changes for existing integrators — plan's own Final Verification section flags this as a 2.0.3-vs-2.1.0 call) before the next PyPI publish, and (c) whether to continue directly into Phase 2 (admin/portal fixes) in a follow-up session.
+- **Security Hardening Phase 1** (F6, F14, F20, F22, F21 full fix, + the mid-fix guardian.py regex-corruption finding) and **Phase 2** (F24/F25, F11, F9/F10, F7/F8, F23) — see Security section above for details. Both merged to `main`, pushed to origin, and deployed to Hetzner (Phase 1: 13 commits, `89e6476..ec5bf2a`; Phase 2: 7 commits, `7134967..b8630fa`). 90/90 tests passing on `main`.
+- **User decision (2026-08-02):** no new SDK version will be published to PyPI until the ENTIRE security hardening plan is resolved (Phases 1-4), not just the SDK-blocking Phase 1 — see the PyPI-publish-gate note below.
+- **Remaining:** Phase 3 (LOW severity: logout CSRF, cookie flags, timing-based enumeration) and Phase 4 (infra/ops hygiene: CI action pinning, infra details in tracked files) — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Once all phases are done, decide the SDK version bump (F6/F22's fail-closed changes are user-visible behavior changes for existing integrators — the plan's own Final Verification section flags this as a 2.0.3-vs-2.1.0 call) before publishing to PyPI.
 
 ### ✅ Done (Jul 26, 2026)
 - Real end-to-end test with an external AI agent — built `demo_kyc_agent.py` (gitignored, distinct from `demo_credit_agent.py`), created a real test client + API key in the production DB, ran 5 cases against `admin.vaultra.io` live: normal approve, sanctions/watchlist reject, low document quality review, a genuine prompt-injection attempt (correctly **blocked by Layer 2**, no receipt generated, logged as `INJECTION_ATTEMPT`), and a GDPR Art. 17 erasure request (correctly **blocked by Layer 5 Human Gate** as a CRITICAL `DELETE` action, receipt generated in `pending` state at 6/7 layers). All 4 non-blocked receipts confirmed stamped (RFC 3161) and `status=valid` in the production `receipts` table. Surfaced one product gap — see "Human Gate approval flow is ephemeral" in Security findings above.
 
 ### 🟡 Important — next session
-1. Push Phase 1 to origin/main (deploy to Hetzner) once ready, and decide the version bump before the next PyPI publish
-2. Security Hardening Phase 2 — admin/portal backend fixes (bcrypt hardening, session revocation, rate-limit proxy trust, CSV injection, constant-time token compare) — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`
-3. Design + build a durable Human Gate approval flow (persist pending DELETE/TRANSFER/IRREVERSIBLE requests to DB, add admin.vaultra.io view to approve/reject) — gap found during the KYC E2E test, distinct from F21's key-conflict admin UI (already built)
-4. Stripe — automated payments and subscriptions
-5. Resend — transactional email (invitations, quota alerts)
-6. Contact rUv (creator of Ruflo, github.com/ruvnet/ruflo, 64K stars) in English to explore an official `ruflo-vaultra` plugin — model: free/open-source plugin that connects to Vaultra's paid backend
+1. Security Hardening Phase 3 (LOW severity, quick wins: logout CSRF, session cookie flags, timing-based username/email enumeration) + Phase 4 (infra/ops hygiene: pin CI action to a commit SHA, move production infra details out of tracked files) — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Blocks the next PyPI publish per the user's explicit gate (see above).
+2. Design + build a durable Human Gate approval flow (persist pending DELETE/TRANSFER/IRREVERSIBLE requests to DB, add admin.vaultra.io view to approve/reject) — gap found during the KYC E2E test, distinct from F21's key-conflict admin UI (already built)
+3. Stripe — automated payments and subscriptions
+4. Resend — transactional email (invitations, quota alerts)
+5. Contact rUv (creator of Ruflo, github.com/ruvnet/ruflo, 64K stars) in English to explore an official `ruflo-vaultra` plugin — model: free/open-source plugin that connects to Vaultra's paid backend
 
 ### 🟢 Legal / Commercial
 5. Letter to employer (Nebentätigkeit §2 authorization) — not expected to be a problem
