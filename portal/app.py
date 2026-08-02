@@ -237,6 +237,33 @@ def fmt_date(ts):
 
 app.jinja_env.globals["fmt_date"] = fmt_date
 
+# ── CSV formula-injection defense (F8) ────────────────────────────────────
+# CSV cells that open with '=', '+', '-', '@', a tab, or a carriage return
+# are interpreted by Excel/LibreOffice/Sheets as a formula (or, for tab/CR,
+# can be abused to smuggle extra "columns"/rows past a naive reader) when the
+# exported file is opened. Several receipt fields (agent_id, decision_type,
+# regulation) ultimately arrive via the public /api/receipt ingestion
+# endpoint (admin/app.py) and are sanitized only for XSS, not for this — so
+# any cell written to a CSV export must be neutralized at the writer
+# boundary, regardless of whether that particular column is
+# attacker-influenced today. Duplicated identically from admin/app.py: this
+# codebase has no existing pattern for sharing code between admin/ and
+# portal/, and a ~5-line pure function isn't worth introducing one for.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+def csv_safe(value):
+    """Prefix a leading formula-injection trigger character with a single
+    quote so spreadsheet apps treat the cell as literal text, not a formula.
+
+    Non-strings (None, int, float, ...) can't carry a formula payload, so
+    they pass through unchanged rather than being stringified.
+    """
+    if not isinstance(value, str):
+        return value
+    if value.startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
 # ── CSRF protection ────────────────────────────────────────────────────
 # Synchronizer-token pattern: one token per session, exposed to templates as
 # csrf_token(), checked on every mutating request against the session copy.
@@ -598,10 +625,11 @@ def report_csv():
     writer.writerow(["Receipt ID","Agent ID","Decision Type","Regulation",
                      "Block Number","RFC 3161 Timestamp","Input Hash","Status","Created At UTC"])
     for r in receipts:
-        writer.writerow([r["id"], r["agent_id"], r["decision_type"],
+        writer.writerow([csv_safe(v) for v in [
+                        r["id"], r["agent_id"], r["decision_type"],
                         r["regulation"], r["block_number"],
                         r["rfc3161_ts"] or "PENDING",
-                        r["input_hash"], r["status"], fmt_date(r["created_at"])])
+                        r["input_hash"], r["status"], fmt_date(r["created_at"])]])
     company = client["company_name"].replace(" ", "_")
     filename = f"vaultra_receipts_{company}_{time.strftime('%Y%m%d')}.csv"
     from flask import Response
