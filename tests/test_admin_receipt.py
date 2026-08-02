@@ -40,12 +40,17 @@ import sqlite3
 import sys
 import time
 import uuid
+from unittest.mock import patch
 
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import vaultra.pipeline as vaultra_pipeline_module
+from vaultra.pipeline import VaultraPipeline
+from vaultra.timestamper import TimestampResult
 
 
 @pytest.fixture
@@ -582,3 +587,113 @@ def test_verify_receipt_no_registered_key_is_unverified(admin_app_module, client
     body = resp.get_json()
     assert body["identity_verified"] is False
     assert body["valid"] is True  # receipt itself is still a valid record
+
+
+# ── Final-review Finding 1: bind the REAL SDK producers to the REAL server
+# verifier ────────────────────────────────────────────────────────────────
+#
+# Every test above proves _verify_identity_signature is internally
+# consistent by reimplementing the SDK's signing contract by hand (see
+# _signable/_sign above). That leaves the actual production producers —
+# vaultra/identity.py's AgentIdentity.sign() and vaultra/pipeline.py's
+# VaultraPipeline._send_receipt() — completely untested against the server.
+# If either drifted from what _signable/_sign assume (field names, key
+# order, JSON encoding), every test above would keep passing while real
+# receipts silently stopped verifying. This test exercises the real
+# functions on both sides, with no hand-rolled reimplementation anywhere.
+
+def _fake_stamp_ok(content, tsa=None):
+    """Deterministic stand-in for the real RFC 3161 network call (Layer 6),
+    mirrored from tests/test_pipeline_layers.py's `_make_pipeline` helper —
+    unrelated to the identity-signing contract this test targets."""
+    return TimestampResult(
+        success=True,
+        receipt_hash="fakehash",
+        tsr_token_b64="ZmFrZQ==",
+        tsa_url="http://fake-tsa.test",
+        timestamp_utc=1_700_000_000.0,
+        token_size_bytes=5,
+    )
+
+
+def test_real_sdk_signing_path_is_accepted_by_real_server_verifier(
+    admin_app_module, client, monkeypatch
+):
+    """A receipt signed by the real vaultra.identity.AgentIdentity.sign()
+    (invoked via the real VaultraPipeline.process()) and sent with the real
+    VaultraPipeline._send_receipt() JSON body must be accepted as
+    identity_verified: true by admin/app.py's real verifier — with nothing
+    in between hand-rolled by this test.
+
+    Isolation: conftest.py's autouse `isolate_vaultra_key_home` fixture
+    already redirects Path.home() to this test's tmp_path, so the plain
+    `VaultraPipeline(...)` constructed below (which builds a real
+    AgentIdentity internally, keyed off agent_id only) never touches the
+    developer's real ~/.vaultra/keys/.
+    """
+    client_id, api_key = _make_client_row(admin_app_module)
+
+    # Real pipeline, real Layer 1 identity — offline_mode just skips the
+    # /api/validate-key network round-trip; it does not affect signing.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    pipeline = VaultraPipeline(
+        agent_id="agent-real-sdk",
+        api_key=api_key,
+        scope="credit_decisions",
+        offline_mode=True,
+        ledger_db_path=":memory:",
+    )
+
+    # Real Layers 1-7, including the real AgentIdentity.sign() call inside
+    # VaultraPipeline.process() — nothing here re-signs or reconstructs the
+    # signable dict by hand.
+    with patch("vaultra.timestamper.stamp", side_effect=_fake_stamp_ok):
+        receipt = pipeline.process(
+            input_data={"customer_id": "C-real"},
+            agent_response="APPROVE loan application — score above threshold",
+            decision_type="LOAN_APPROVED",
+        )
+    assert receipt.identity_signature is not None
+    assert receipt.identity_fingerprint == pipeline._identity.fingerprint()
+
+    # process() no-ops _send_receipt() while offline (see pipeline.py); flip
+    # to online just for this call — mirroring a genuinely-online SDK
+    # deployment — and redirect requests.post at the isolated Flask test
+    # client instead of the real network. This is the only stand-in in this
+    # test: the JSON body construction inside _send_receipt() is 100% real
+    # production code, not reimplemented here.
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        assert url.endswith("/api/receipt")
+        captured["body"] = json
+        captured["resp"] = client.post("/api/receipt", json=json)
+
+        class _FakeResp:
+            status_code = captured["resp"].status_code
+
+        return _FakeResp()
+
+    monkeypatch.setattr(vaultra_pipeline_module.requests, "post", fake_post)
+    pipeline.offline = False
+    pipeline._send_receipt(receipt)
+
+    # The real _send_receipt() sends exactly the JSON keys /api/receipt's
+    # real receive_receipt() handler reads (admin/app.py ~lines 1657-1659) —
+    # asserted literally, closing the "both sides independently reimplement
+    # the field names" gap.
+    body = captured["body"]
+    assert body["identity_signature"] == receipt.identity_signature
+    assert body["identity_fingerprint"] == receipt.identity_fingerprint
+    assert body["identity_public_key"] == pipeline._identity.public_key_hex()
+
+    post_resp = captured["resp"]
+    assert post_resp.status_code == 200
+    rid = post_resp.get_json()["receipt_id"]
+
+    # Real server-side verification (admin/app.py's real
+    # _verify_identity_signature / /api/verify) against the real signature.
+    verify_resp = client.get(f"/api/verify/{rid}")
+    assert verify_resp.status_code == 200
+    verify_body = verify_resp.get_json()
+    assert verify_body["identity_verified"] is True
