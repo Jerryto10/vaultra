@@ -26,9 +26,11 @@ import uuid
 import calendar
 try:
     import bcrypt
-    BCRYPT_AVAILABLE = True
 except ImportError:
-    BCRYPT_AVAILABLE = False
+    raise RuntimeError(
+        "bcrypt is not installed. Refusing to start without a secure password "
+        "hashing library — install bcrypt (see requirements.txt)."
+    )
 from datetime import datetime
 from functools import wraps
 
@@ -381,20 +383,14 @@ def init_db():
 
     # Create default users
     admin_pwd = _resolve_seed_password("ADMIN_PASSWORD", "admin")
-    if BCRYPT_AVAILABLE:
-        admin_hash = bcrypt.hashpw(admin_pwd.encode(), bcrypt.gensalt()).decode()
-    else:
-        admin_hash = hashlib.sha256(admin_pwd.encode()).hexdigest()
+    admin_hash = bcrypt.hashpw(admin_pwd.encode(), bcrypt.gensalt()).decode()
     try:
         db.execute("""
             INSERT INTO admin_users (id, username, password_hash, role, created_at)
             VALUES (?, 'admin', ?, 'admin', ?)
         """, (str(uuid.uuid4()), admin_hash, time.time()))
         support_pwd = _resolve_seed_password("SUPPORT_PASSWORD", "support")
-        if BCRYPT_AVAILABLE:
-            support_hash = bcrypt.hashpw(support_pwd.encode(), bcrypt.gensalt()).decode()
-        else:
-            support_hash = hashlib.sha256(support_pwd.encode()).hexdigest()
+        support_hash = bcrypt.hashpw(support_pwd.encode(), bcrypt.gensalt()).decode()
         db.execute("""
             INSERT INTO admin_users (id, username, password_hash, role, created_at)
             VALUES (?, 'support', ?, 'support', ?)
@@ -540,12 +536,12 @@ def login():
             "SELECT * FROM admin_users WHERE username=?",
             (username,)
         ).fetchone()
-        # Verify password — bcrypt if available, SHA-256 fallback
+        # Verify password — bcrypt only; reject any non-bcrypt hash outright
         if user:
-            if BCRYPT_AVAILABLE and user["password_hash"].startswith("$2"):
+            if user["password_hash"].startswith("$2"):
                 password_ok = bcrypt.checkpw(password.encode(), user["password_hash"].encode())
             else:
-                password_ok = user["password_hash"] == hashlib.sha256(password.encode()).hexdigest()
+                password_ok = False
             if not password_ok:
                 user = None
         if user:
@@ -1377,20 +1373,13 @@ def change_password():
         return jsonify({"error": "User not found"}), 404
 
     password_ok = False
-    if BCRYPT_AVAILABLE and user["password_hash"].startswith("$2"):
-        import bcrypt as _bcrypt
-        password_ok = _bcrypt.checkpw(current.encode(), user["password_hash"].encode())
-    else:
-        password_ok = (hashlib.sha256(current.encode()).hexdigest() == user["password_hash"])
+    if user["password_hash"].startswith("$2"):
+        password_ok = bcrypt.checkpw(current.encode(), user["password_hash"].encode())
 
     if not password_ok:
         return jsonify({"error": "Current password is incorrect"}), 401
 
-    if BCRYPT_AVAILABLE:
-        import bcrypt as _bcrypt
-        new_hash = _bcrypt.hashpw(new_pwd.encode(), _bcrypt.gensalt()).decode()
-    else:
-        new_hash = hashlib.sha256(new_pwd.encode()).hexdigest()
+    new_hash = bcrypt.hashpw(new_pwd.encode(), bcrypt.gensalt()).decode()
 
     db.execute("UPDATE admin_users SET password_hash=? WHERE id=?", (new_hash, session["admin_id"]))
     db.commit()
@@ -1422,11 +1411,7 @@ def create_admin_user():
     if existing:
         return jsonify({"error": "Username already exists"}), 409
 
-    if BCRYPT_AVAILABLE:
-        import bcrypt as _bcrypt
-        pwd_hash = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
-    else:
-        pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+    pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
     new_id = str(uuid.uuid4())
     db.execute(

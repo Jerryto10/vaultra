@@ -6,7 +6,6 @@ import os
 import re
 import time
 import uuid
-import hashlib
 import hmac
 import secrets
 import sqlite3
@@ -15,9 +14,11 @@ from datetime import datetime, timezone
 
 try:
     import bcrypt
-    BCRYPT_AVAILABLE = True
 except ImportError:
-    BCRYPT_AVAILABLE = False
+    raise RuntimeError(
+        "bcrypt is not installed. Refusing to start without a secure password "
+        "hashing library — install bcrypt (see requirements.txt)."
+    )
 
 from flask import (
     Flask, render_template, request, session,
@@ -308,10 +309,8 @@ def login():
             ).fetchone()
             ok = False
             if cu:
-                if BCRYPT_AVAILABLE and cu["password_hash"].startswith("$2"):
+                if cu["password_hash"].startswith("$2"):
                     ok = bcrypt.checkpw(password.encode(), cu["password_hash"].encode())
-                else:
-                    ok = hashlib.sha256(password.encode()).hexdigest() == cu["password_hash"]
             if cu and ok:
                 clear_attempts(ip)
                 session["client_user_id"] = cu["id"]
@@ -350,10 +349,7 @@ def activate(token):
         elif password != confirm:
             error = "Passwords do not match."
         else:
-            if BCRYPT_AVAILABLE:
-                pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            else:
-                pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+            pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
             # Check if user already exists
             existing = db.execute(
@@ -641,16 +637,11 @@ def change_password():
     if len(new_pwd) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
     ok = False
-    if BCRYPT_AVAILABLE and cu["password_hash"].startswith("$2"):
+    if cu["password_hash"].startswith("$2"):
         ok = bcrypt.checkpw(current.encode(), cu["password_hash"].encode())
-    else:
-        ok = hashlib.sha256(current.encode()).hexdigest() == cu["password_hash"]
     if not ok:
         return jsonify({"error": "Current password incorrect"}), 401
-    if BCRYPT_AVAILABLE:
-        new_hash = bcrypt.hashpw(new_pwd.encode(), bcrypt.gensalt()).decode()
-    else:
-        new_hash = hashlib.sha256(new_pwd.encode()).hexdigest()
+    new_hash = bcrypt.hashpw(new_pwd.encode(), bcrypt.gensalt()).decode()
     db = get_db()
     db.execute("UPDATE client_users SET password_hash=? WHERE id=?", (new_hash, cu["id"]))
     db.commit()
