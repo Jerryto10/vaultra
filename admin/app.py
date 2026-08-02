@@ -261,18 +261,55 @@ def init_db():
         );
 
         CREATE TABLE IF NOT EXISTS receipts (
-            id            TEXT PRIMARY KEY,
-            client_id     TEXT NOT NULL,
-            agent_id      TEXT NOT NULL,
-            decision      TEXT NOT NULL,
-            decision_type TEXT NOT NULL,
-            input_hash    TEXT NOT NULL,
-            block_number  INTEGER NOT NULL,
-            rfc3161_ts    TEXT,
-            regulation    TEXT NOT NULL DEFAULT 'EU AI Act',
-            status        TEXT NOT NULL DEFAULT 'valid',
-            created_at    REAL NOT NULL,
+            id                   TEXT PRIMARY KEY,
+            client_id            TEXT NOT NULL,
+            agent_id             TEXT NOT NULL,
+            decision             TEXT NOT NULL,
+            decision_type        TEXT NOT NULL,
+            input_hash           TEXT NOT NULL,
+            block_number         INTEGER NOT NULL,
+            rfc3161_ts           TEXT,
+            regulation           TEXT NOT NULL DEFAULT 'EU AI Act',
+            status               TEXT NOT NULL DEFAULT 'valid',
+            created_at           REAL NOT NULL,
+            identity_signature   TEXT,
+            identity_fingerprint TEXT,
             FOREIGN KEY (client_id) REFERENCES clients(id)
+        );
+
+        -- F21 (2/4): server-side registry of the Ed25519 public key an agent
+        -- enrolled with on its first-ever receipt (trusted-channel enrollment,
+        -- since the request is already authenticated by api_key). Later
+        -- receipts from the same (client_id, agent_id) are expected to carry
+        -- a signature verifiable against this key.
+        CREATE TABLE IF NOT EXISTS agent_keys (
+            client_id  TEXT NOT NULL,
+            agent_id   TEXT NOT NULL,
+            public_key TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'active',
+            first_seen REAL NOT NULL,
+            last_seen  REAL NOT NULL,
+            PRIMARY KEY (client_id, agent_id)
+        );
+
+        -- Recorded when a receipt arrives with a public key that differs from
+        -- the one already enrolled for that (client_id, agent_id) — the
+        -- identity-trust upgrade is paused pending review; ingestion itself is
+        -- never blocked by this (the api_key already authenticated the
+        -- request).
+        CREATE TABLE IF NOT EXISTS agent_key_conflicts (
+            id                    TEXT PRIMARY KEY,
+            client_id             TEXT NOT NULL,
+            agent_id              TEXT NOT NULL,
+            existing_public_key   TEXT NOT NULL,
+            incoming_public_key   TEXT NOT NULL,
+            incoming_fingerprint  TEXT NOT NULL,
+            receipt_id            TEXT,
+            status                TEXT NOT NULL DEFAULT 'pending',
+            created_at            REAL NOT NULL,
+            resolved_at           REAL,
+            resolved_by           TEXT
         );
 
         CREATE TABLE IF NOT EXISTS audit_log (
@@ -332,6 +369,8 @@ def init_db():
         "ALTER TABLE clients ADD COLUMN address TEXT",
         "ALTER TABLE clients ADD COLUMN phone TEXT",
         "ALTER TABLE clients ADD COLUMN website TEXT",
+        "ALTER TABLE receipts ADD COLUMN identity_signature TEXT",
+        "ALTER TABLE receipts ADD COLUMN identity_fingerprint TEXT",
     ]:
         try:
             db.execute(col_sql)
@@ -1452,6 +1491,12 @@ def receive_receipt():
     except (TypeError, ValueError):
         block_number = 0
 
+    # F21 (2/4): identity fields are optional — older SDKs (pre-1.7) won't
+    # send them. Stored on the receipt regardless of enrollment outcome below.
+    identity_signature = sanitize_text(data.get("identity_signature"), max_length=512)
+    identity_fingerprint = sanitize_text(data.get("identity_fingerprint"), max_length=128)
+    identity_public_key = sanitize_text(data.get("identity_public_key"), max_length=128)
+
     now = time.time()
     rid = str(uuid.uuid4())
 
@@ -1508,14 +1553,57 @@ def receive_receipt():
                 "upgrade": "Contact hello@vaultra.io to upgrade your plan"
             }), 429
 
+        # ── Agent public-key registry: trusted-channel enrollment + conflict
+        # detection (F21 2/4) ────────────────────────────────────────────
+        # Only acts when the SDK sent both a public key and a fingerprint.
+        # No entry for (client_id, agent_id) yet → this request's api_key
+        # already authenticated the caller, so we trust this channel to
+        # enroll the key. An entry exists and matches → just refresh
+        # last_seen. An entry exists and differs → do NOT overwrite the
+        # enrolled key; record a pending conflict for review instead. In no
+        # case does this block receipt ingestion.
+        if identity_public_key and identity_fingerprint:
+            existing_key = conn.execute(
+                "SELECT public_key FROM agent_keys WHERE client_id=? AND agent_id=?",
+                (client["id"], agent_id)
+            ).fetchone()
+
+            if existing_key is None:
+                conn.execute(
+                    """INSERT INTO agent_keys
+                       (client_id, agent_id, public_key, fingerprint, status,
+                        first_seen, last_seen)
+                       VALUES (?, ?, ?, ?, 'active', ?, ?)""",
+                    (client["id"], agent_id, identity_public_key,
+                     identity_fingerprint, now, now)
+                )
+            elif existing_key["public_key"] == identity_public_key:
+                conn.execute(
+                    "UPDATE agent_keys SET last_seen=? WHERE client_id=? AND agent_id=?",
+                    (now, client["id"], agent_id)
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO agent_key_conflicts
+                       (id, client_id, agent_id, existing_public_key,
+                        incoming_public_key, incoming_fingerprint, receipt_id,
+                        status, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                    (str(uuid.uuid4()), client["id"], agent_id,
+                     existing_key["public_key"], identity_public_key,
+                     identity_fingerprint, rid, now)
+                )
+
         conn.execute("""
             INSERT INTO receipts
             (id, client_id, agent_id, decision, decision_type, input_hash,
-             block_number, rfc3161_ts, regulation, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?)
+             block_number, rfc3161_ts, regulation, status, created_at,
+             identity_signature, identity_fingerprint)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?, ?, ?)
         """, (
             rid, client["id"], agent_id, decision, decision_type,
-            input_hash, block_number, rfc3161_ts, regulation, now
+            input_hash, block_number, rfc3161_ts, regulation, now,
+            identity_signature, identity_fingerprint
         ))
 
         new_month_count = conn.execute(
