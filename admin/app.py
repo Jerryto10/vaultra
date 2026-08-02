@@ -143,23 +143,43 @@ def normalize_login_identifier(identifier):
     return (identifier or "").strip().lower()
 
 def check_login_rate(ip, identifier):
-    """Rate-limit keyed on the submitted account identifier, not ip alone (F10).
+    """Rate-limit gated on TWO independent counters, combined with OR: an
+    attempt is allowed only if NEITHER counter is at/over its cap (F10,
+    fix-round 2 — see task-2.3-report.md for the code-review finding that
+    prompted this).
 
-    The old ip-only limiter had two failure modes: (1) one attacker behind a
-    shared/NATed IP could exhaust the shared budget by cycling usernames from
-    that one IP, locking every admin who happens to log in from the same
-    address (one bad actor, many victims); (2) an attacker distributed across
-    many source IPs could hammer a single victim account completely unnoticed,
-    since each IP got its own separate budget.
+    Round 1 of this fix keyed the limiter solely on the submitted account
+    identifier, dropping `ip` from the throttle decision entirely. That
+    closed the "one account hammered from many IPs" gap but opened two worse
+    ones: (1) since check_login_rate runs before password verification,
+    anyone who knows or guesses an identifier (e.g. the seeded "admin"
+    username — a guaranteed, no-recon target) could fill that identifier's
+    bucket with 5 failed POSTs and lock the *legitimate* owner out for the
+    whole LOGIN_WINDOW, even on a correct password; (2) with no per-IP
+    counter at all, a single source could credential-spray across unlimited
+    distinct accounts (a handful of guesses each) with no throttling
+    whatsoever — exactly the class of attack ProxyFix's correct client-IP
+    resolution was supposed to let this limiter catch.
 
-    A per-account backoff (count keyed on the normalized identifier alone,
-    across all source IPs) fixes both: account A's failed attempts never
-    borrow from or spend account B's budget regardless of shared IP, and an
-    account under attack is throttled no matter how many different IPs the
-    attempts arrive from. `ip` is still recorded on every row (see
-    record_login_attempt) purely for audit/forensics — it is intentionally
-    not part of the throttle decision itself, per the report's directive to
-    "prefer per-account backoff over a global cutoff."
+    Restoring a per-IP counter alongside the per-identifier one (OR'd
+    together) catches both directions again:
+      - per-identifier (scope, identifier): an account under attack is
+        throttled no matter how many different source IPs the attempts
+        arrive from.
+      - per-ip (scope, ip): a single source spraying attempts across many
+        different accounts is throttled once its *total* attempt volume
+        crosses the cap, regardless of how thinly it spreads them across
+        identifiers.
+    `ip` is recorded on every row (see record_login_attempt) for both
+    dimensions now, not just audit/forensics.
+
+    Both dimensions share MAX_LOGIN_ATTEMPTS as a single threshold rather
+    than giving the identifier dimension a higher cap — see task-2.3-report.md
+    for the tradeoff this accepts (a residual account-lockout-DoS risk: 5
+    failed POSTs against a guessable identifier from 5 different IPs still
+    locks that identifier for one LOGIN_WINDOW). Kept simple deliberately for
+    this round; a higher identifier-specific threshold is a reasonable
+    future refinement, not required to close the finding this round fixes.
     """
     identifier = normalize_login_identifier(identifier)
     conn = _rl_conn()
@@ -170,13 +190,18 @@ def check_login_rate(ip, identifier):
             "DELETE FROM login_attempts WHERE scope='admin' AND created_at < ?",
             (now - LOGIN_WINDOW,)
         )
-        count = conn.execute(
+        ip_count = conn.execute(
+            "SELECT COUNT(*) FROM login_attempts "
+            "WHERE scope='admin' AND ip=?",
+            (ip,)
+        ).fetchone()[0]
+        id_count = conn.execute(
             "SELECT COUNT(*) FROM login_attempts "
             "WHERE scope='admin' AND identifier=?",
             (identifier,)
         ).fetchone()[0]
         conn.execute("COMMIT")
-        return count < MAX_LOGIN_ATTEMPTS
+        return ip_count < MAX_LOGIN_ATTEMPTS and id_count < MAX_LOGIN_ATTEMPTS
     finally:
         conn.close()
 
@@ -423,9 +448,10 @@ def init_db():
         # session cookies for that user stop validating (see
         # bump_session_version / check_session_revoked below).
         "ALTER TABLE admin_users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
-        # F10: rate-limit key now includes the submitted username, not just
-        # ip, so one attacker behind a shared IP can't lock out every admin
-        # account (see check_login_rate / record_login_attempt above).
+        # F10: rate-limit is now also keyed on the submitted username (in
+        # addition to ip, OR'd together), so an attacker distributed across
+        # many IPs can't hammer one admin account unnoticed (see
+        # check_login_rate / record_login_attempt above).
         "ALTER TABLE login_attempts ADD COLUMN identifier TEXT NOT NULL DEFAULT ''",
     ]:
         try:
@@ -436,9 +462,11 @@ def init_db():
 
     # This index needs the `identifier` column above to already exist, so it
     # can't live in the CREATE TABLE block for databases upgrading from
-    # before F10 — build it after the ALTER TABLE migration runs. It matches
-    # check_login_rate/clear_login_attempts' actual query shape (filtered on
-    # scope + identifier, no longer on ip — see F10 above).
+    # before F10 — build it after the ALTER TABLE migration runs. It backs
+    # the per-identifier half of check_login_rate's OR'd query (scope +
+    # identifier); idx_login_attempts_scope_ip above backs the per-ip half —
+    # both counters are queried on every check_login_rate call now (see
+    # check_login_rate's docstring, fix-round 2).
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_login_attempts_scope_identifier "
         "ON login_attempts(scope, identifier, created_at)"

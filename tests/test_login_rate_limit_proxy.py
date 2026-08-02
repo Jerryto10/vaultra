@@ -21,12 +21,31 @@ F10: the rate limiter used to key solely on ip. That has two failure modes:
       all failed attempts from that IP share one budget;
   (b) an attacker distributed across many source IPs can hammer one victim
       account completely unnoticed, since each IP gets its own budget.
-Both apps now key the rate limiter on the normalized account identifier
-(username for admin, email for portal) rather than ip, giving a genuine
-per-account backoff: an account's failed-attempt count follows the account
-across source IPs, and one IP's attempts against account A never touch
-account B's budget. `ip` is still recorded on every row for audit purposes,
-but no longer gates the throttle decision.
+
+Round 1 of this fix (commit 97bb6d1) keyed the limiter solely on the
+normalized account identifier and dropped ip from the throttle decision
+entirely. Code review caught that this fixed (b) but reintroduced a worse
+version of the opposite problem: since check_login_rate runs before password
+verification, anyone who knows/guesses an identifier (e.g. the seeded
+"admin" username) could fill that identifier's bucket with failed POSTs and
+lock the *legitimate* owner out even on a correct password — and with no
+per-IP counter at all, a single source had an *unlimited* total attempt
+budget as long as it spread guesses across enough different accounts
+(credential-spray from one source went completely unthrottled).
+
+Fix-round 2: both apps now gate check_login_rate on TWO independent
+counters, combined with OR (reject if EITHER trips):
+  - per-identifier (scope, identifier): catches (b), a distributed attack
+    against one account from many IPs.
+  - per-ip (scope, ip): catches (a)'s mirror image — credential-spray from
+    one source against many different accounts — by capping that source's
+    *total* attempt volume regardless of how thinly it's spread across
+    identifiers.
+Both dimensions share one threshold (MAX_LOGIN_ATTEMPTS / MAX_ATTEMPTS) for
+this round rather than giving identifier a higher cap — see
+task-2.3-report.md for the accepted tradeoff (a residual account-lockout-DoS
+risk from a flat per-identifier cutoff). `ip` is recorded on every row and
+is now load-bearing for both dimensions, not just audit/forensics.
 """
 
 import importlib
@@ -166,16 +185,19 @@ def test_portal_proxyfix_reflects_x_forwarded_for(portal_app_module, portal_clie
 
 # ── F10: per-account backoff, not ip-only ──────────────────────────────────
 
-def test_admin_one_ip_attacking_many_usernames_does_not_lock_out_untouched_account(
+def test_admin_decoy_usernames_from_distinct_ips_do_not_consume_real_accounts_identifier_budget(
     admin_app_module, admin_client
 ):
-    """One attacker behind a single IP cycling through many admin usernames
-    must not exhaust the rate-limit budget for an admin account it never
-    touched. Pre-fix (ip-only key), all these failures shared one bucket per
-    IP and would have locked out every admin behind that address; keyed on
-    identifier, "admin"'s budget is untouched by attempts against other
-    (nonexistent) usernames from the same IP."""
-    attacker_ip = "203.0.113.99"
+    """Failed attempts against decoy usernames, arriving from distinct source
+    IPs (each individually well under the per-IP cap), must not exhaust the
+    per-identifier budget for an admin account they never touched — the
+    identifier dimension still isolates account A's failures from account
+    B's regardless of shared infrastructure elsewhere. (Distinct IPs are used
+    deliberately here so this test exercises identifier isolation alone,
+    without also tripping the per-IP counter — that dimension is covered by
+    test_admin_one_ip_spraying_many_accounts_gets_rate_limited_on_ip_dimension
+    below, which is the scenario this test used to — incorrectly — assert
+    should never be throttled.)"""
     for i in range(6):
         token = _get_csrf(admin_client)
         resp = admin_client.post(
@@ -185,12 +207,13 @@ def test_admin_one_ip_attacking_many_usernames_does_not_lock_out_untouched_accou
                 "password": "wrong-password",
                 "csrf_token": token,
             },
-            headers={"X-Forwarded-For": attacker_ip},
+            headers={"X-Forwarded-For": f"203.0.113.{100 + i}"},
         )
         assert resp.status_code == 200  # never 429 for these — none is "admin"
 
     # The real "admin" account, never targeted by any of the above, must
-    # still be able to log in — its per-account budget is untouched.
+    # still be able to log in — its per-identifier budget is untouched, and
+    # this fresh IP's per-ip budget is untouched too.
     token = _get_csrf(admin_client)
     resp = admin_client.post(
         "/login",
@@ -199,10 +222,52 @@ def test_admin_one_ip_attacking_many_usernames_does_not_lock_out_untouched_accou
             "password": "test-admin-password",
             "csrf_token": token,
         },
-        headers={"X-Forwarded-For": attacker_ip},
+        headers={"X-Forwarded-For": "203.0.113.200"},
     )
     assert resp.status_code == 302
     assert "/dashboard" in resp.headers["Location"]
+
+
+def test_admin_one_ip_spraying_many_accounts_gets_rate_limited_on_ip_dimension(
+    admin_app_module, admin_client
+):
+    """One attacker IP cycling through many different (nonexistent)
+    usernames — at most MAX_LOGIN_ATTEMPTS attempts against any single one of
+    them — must still trip the per-IP counter once its *total* attempt
+    volume from that source crosses the cap. This is the credential-spray
+    case that fix-round 1's identifier-only design left completely
+    unthrottled (a single source had unlimited budget as long as it spread
+    guesses across enough accounts); restoring the per-IP counter (OR'd with
+    the per-identifier one) closes it."""
+    attacker_ip = "203.0.113.77"
+    for i in range(admin_app_module.MAX_LOGIN_ATTEMPTS):
+        token = _get_csrf(admin_client)
+        resp = admin_client.post(
+            "/login",
+            data={
+                "username": f"spray-user-{i}",
+                "password": "wrong-password",
+                "csrf_token": token,
+            },
+            headers={"X-Forwarded-For": attacker_ip},
+        )
+        assert resp.status_code == 200
+
+    # One more attempt from the same IP, against yet another never-seen
+    # username (zero prior failed attempts of its own), must now be blocked
+    # — the per-IP counter has reached its cap even though no single
+    # identifier individually exceeded it.
+    token = _get_csrf(admin_client)
+    resp = admin_client.post(
+        "/login",
+        data={
+            "username": "never-seen-before",
+            "password": "wrong-password",
+            "csrf_token": token,
+        },
+        headers={"X-Forwarded-For": attacker_ip},
+    )
+    assert resp.status_code == 429
 
 
 def test_admin_one_account_hammered_from_many_ips_still_gets_rate_limited(
@@ -259,12 +324,16 @@ def test_admin_identifier_is_case_and_whitespace_normalized_for_rate_limiting(
     assert resp.status_code == 429
 
 
-def test_portal_one_ip_attacking_many_emails_does_not_lock_out_untouched_account(
+def test_portal_decoy_emails_from_distinct_ips_do_not_consume_real_accounts_identifier_budget(
     portal_app_module, portal_client
 ):
-    """Same invariant as the admin test above, for portal/app.py: one IP
-    cycling through many decoy emails must not lock out a real client
-    account it never targeted."""
+    """Same invariant as the equivalent admin test, for portal/app.py: decoy
+    emails arriving from distinct source IPs (each under the per-IP cap)
+    must not lock out a real client account they never targeted. Distinct
+    IPs are used deliberately so this exercises identifier isolation alone
+    — see test_portal_one_ip_spraying_many_accounts_gets_rate_limited_on_ip_dimension
+    below for the per-ip dimension, which is the scenario this test used to
+    — incorrectly — assert should never be throttled."""
     email = "victim@example.com"
     password = "victim-password1"
 
@@ -288,13 +357,44 @@ def test_portal_one_ip_attacking_many_emails_does_not_lock_out_untouched_account
     finally:
         conn.close()
 
-    attacker_ip = "203.0.113.150"
     for i in range(6):
         token = _get_csrf(portal_client)
         resp = portal_client.post(
             "/login",
             data={
                 "email": f"decoy-{i}@example.com",
+                "password": "wrong-password",
+                "csrf_token": token,
+            },
+            headers={"X-Forwarded-For": f"203.0.113.{150 + i}"},
+        )
+        assert resp.status_code == 200
+
+    token = _get_csrf(portal_client)
+    resp = portal_client.post(
+        "/login",
+        data={"email": email, "password": password, "csrf_token": token},
+        headers={"X-Forwarded-For": "203.0.113.222"},
+    )
+    assert resp.status_code == 302
+    assert "/dashboard" in resp.headers["Location"]
+
+
+def test_portal_one_ip_spraying_many_accounts_gets_rate_limited_on_ip_dimension(
+    portal_app_module, portal_client
+):
+    """One attacker IP cycling through many different decoy emails — at most
+    MAX_ATTEMPTS attempts against any single one of them — must still trip
+    the per-IP counter once its total attempt volume from that source
+    crosses the cap. This is the credential-spray case fix-round 1's
+    identifier-only design left completely unthrottled."""
+    attacker_ip = "203.0.113.180"
+    for i in range(portal_app_module.MAX_ATTEMPTS):
+        token = _get_csrf(portal_client)
+        resp = portal_client.post(
+            "/login",
+            data={
+                "email": f"spray-{i}@example.com",
                 "password": "wrong-password",
                 "csrf_token": token,
             },
@@ -305,11 +405,15 @@ def test_portal_one_ip_attacking_many_emails_does_not_lock_out_untouched_account
     token = _get_csrf(portal_client)
     resp = portal_client.post(
         "/login",
-        data={"email": email, "password": password, "csrf_token": token},
+        data={
+            "email": "never-seen-before@example.com",
+            "password": "wrong-password",
+            "csrf_token": token,
+        },
         headers={"X-Forwarded-For": attacker_ip},
     )
-    assert resp.status_code == 302
-    assert "/dashboard" in resp.headers["Location"]
+    assert resp.status_code == 200
+    assert b"Too many login attempts" in resp.data
 
 
 def test_portal_one_account_hammered_from_many_ips_still_gets_rate_limited(
@@ -333,3 +437,70 @@ def test_portal_one_account_hammered_from_many_ips_still_gets_rate_limited(
     )
     assert resp.status_code == 200
     assert b"Too many login attempts" in resp.data
+
+
+# ── fix-round 2: a legitimate first attempt is never blocked ───────────────
+# (explicit re-verification requested by code review alongside the OR-logic
+# fix above — this should already hold since both counters start at zero for
+# a never-seen ip/identifier pair, but is worth pinning down directly rather
+# than only inferring it from the other tests' final assertions.)
+
+def test_admin_correct_password_on_first_attempt_from_fresh_ip_is_never_blocked(
+    admin_app_module, admin_client
+):
+    """A legitimate admin logging in correctly on the very first attempt,
+    from an IP with no prior history, must never be rejected by the rate
+    limiter — both the per-ip and per-identifier counters start at zero."""
+    token = _get_csrf(admin_client)
+    resp = admin_client.post(
+        "/login",
+        data={
+            "username": "admin",
+            "password": "test-admin-password",
+            "csrf_token": token,
+        },
+        headers={"X-Forwarded-For": "203.0.113.250"},
+    )
+    assert resp.status_code == 302
+    assert "/dashboard" in resp.headers["Location"]
+    with admin_client.session_transaction() as sess:
+        assert "admin_id" in sess
+
+
+def test_portal_correct_password_on_first_attempt_from_fresh_ip_is_never_blocked(
+    portal_app_module, portal_client
+):
+    """Same invariant as the admin test above, for portal/app.py."""
+    email = "firsttry@example.com"
+    password = "correct-horse-battery1"
+
+    import bcrypt
+    import uuid
+
+    client_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+    pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    conn = sqlite3.connect(portal_app_module.DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO clients (id, company_name) VALUES (?, ?)", (client_id, "First Try Co")
+        )
+        conn.execute(
+            """INSERT INTO client_users (id, client_id, email, password_hash, created_at, status)
+               VALUES (?, ?, ?, ?, ?, 'active')""",
+            (user_id, client_id, email, pwd_hash, time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    token = _get_csrf(portal_client)
+    resp = portal_client.post(
+        "/login",
+        data={"email": email, "password": password, "csrf_token": token},
+        headers={"X-Forwarded-For": "203.0.113.251"},
+    )
+    assert resp.status_code == 302
+    assert "/dashboard" in resp.headers["Location"]
+    with portal_client.session_transaction() as sess:
+        assert "client_user_id" in sess
