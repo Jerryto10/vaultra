@@ -301,7 +301,8 @@ def enforce_csrf():
             return jsonify({"error": "Invalid or missing CSRF token"}), 403
 
 # ── Login rate limiting — SQLite-backed (shared across Gunicorn workers) ──
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS_PER_IP = 5
+MAX_ATTEMPTS_PER_IDENTIFIER = 20
 LOGIN_WINDOW = 300
 
 def _rl_conn():
@@ -350,13 +351,21 @@ def check_login_rate(ip, identifier):
     `ip` is recorded on every row (see record_attempt) for both dimensions
     now, not just audit/forensics.
 
-    Both dimensions share MAX_ATTEMPTS as a single threshold rather than
-    giving the identifier dimension a higher cap — see task-2.3-report.md
-    for the tradeoff this accepts (a residual account-lockout-DoS risk: 5
-    failed POSTs against a known identifier from 5 different IPs still locks
-    that identifier for one LOGIN_WINDOW). Kept simple deliberately for this
-    round; a higher identifier-specific threshold is a reasonable future
-    refinement, not required to close the finding this round fixes.
+    The two dimensions use DIFFERENT thresholds (final-review fix, closing
+    the residual gap noted in earlier rounds — see task-2.3-report.md): the
+    per-IP cap (MAX_ATTEMPTS_PER_IP = 5) stays tight, since a single source
+    hitting it is a strong single-origin brute-force/spray signal. The
+    per-identifier cap (MAX_ATTEMPTS_PER_IDENTIFIER = 20) is higher, because
+    check_login_rate runs before password verification: with a shared
+    threshold of 5, an attacker who merely knows/leaks a client's email
+    could distribute 5 failed POSTs against it across 5 source IPs (each
+    individually well under its own per-IP cap) and self-renew that lockout
+    indefinitely once per LOGIN_WINDOW, denying the real account owner with
+    negligible effort. Raising only the identifier cap (4x the IP cap)
+    forces that same denial-of-service to cost an attacker meaningfully
+    more — more source IPs and/or more requests per window — while leaving
+    single-source brute-force/spray protection (the per-IP dimension)
+    exactly as strong as before.
     """
     identifier = normalize_login_identifier(identifier)
     conn = _rl_conn()
@@ -378,7 +387,7 @@ def check_login_rate(ip, identifier):
             (identifier,)
         ).fetchone()[0]
         conn.execute("COMMIT")
-        return ip_count < MAX_ATTEMPTS and id_count < MAX_ATTEMPTS
+        return ip_count < MAX_ATTEMPTS_PER_IP and id_count < MAX_ATTEMPTS_PER_IDENTIFIER
     finally:
         conn.close()
 

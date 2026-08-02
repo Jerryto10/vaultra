@@ -41,11 +41,23 @@ counters, combined with OR (reject if EITHER trips):
     one source against many different accounts — by capping that source's
     *total* attempt volume regardless of how thinly it's spread across
     identifiers.
-Both dimensions share one threshold (MAX_LOGIN_ATTEMPTS / MAX_ATTEMPTS) for
-this round rather than giving identifier a higher cap — see
-task-2.3-report.md for the accepted tradeoff (a residual account-lockout-DoS
-risk from a flat per-identifier cutoff). `ip` is recorded on every row and
-is now load-bearing for both dimensions, not just audit/forensics.
+Fix-round 2 gave both dimensions the same threshold (MAX_LOGIN_ATTEMPTS /
+MAX_ATTEMPTS = 5), which the final whole-branch review flagged as a residual
+account-lockout-DoS: since check_login_rate runs before password
+verification and "admin"/"support" are guaranteed-existent seeded
+usernames, 5 failed POSTs against "admin" spread across 5 source IPs
+(each individually under its own per-IP cap) locks the real admin out, and
+is self-renewable once per LOGIN_WINDOW indefinitely, with zero password
+knowledge required.
+
+Final-review fix: the two dimensions now use DIFFERENT thresholds —
+MAX_LOGIN_ATTEMPTS_PER_IP / MAX_ATTEMPTS_PER_IP stays at 5 (unchanged
+single-source brute-force/spray protection), while
+MAX_LOGIN_ATTEMPTS_PER_IDENTIFIER / MAX_ATTEMPTS_PER_IDENTIFIER is raised to
+20 (4x the IP cap), so the same distributed low-and-slow attack against one
+known account now costs an attacker meaningfully more effort (more source
+IPs and/or more requests per window) than before. `ip` is recorded on every
+row and is load-bearing for both dimensions, not just audit/forensics.
 """
 
 import importlib
@@ -232,15 +244,19 @@ def test_admin_one_ip_spraying_many_accounts_gets_rate_limited_on_ip_dimension(
     admin_app_module, admin_client
 ):
     """One attacker IP cycling through many different (nonexistent)
-    usernames — at most MAX_LOGIN_ATTEMPTS attempts against any single one of
-    them — must still trip the per-IP counter once its *total* attempt
-    volume from that source crosses the cap. This is the credential-spray
+    usernames — at most MAX_LOGIN_ATTEMPTS_PER_IP attempts against any
+    single one of them — must still trip the per-IP counter once its
+    *total* attempt volume from that source crosses the cap, independent of
+    the (now higher) per-identifier threshold. This is the credential-spray
     case that fix-round 1's identifier-only design left completely
     unthrottled (a single source had unlimited budget as long as it spread
     guesses across enough accounts); restoring the per-IP counter (OR'd with
-    the per-identifier one) closes it."""
+    the per-identifier one) closes it, and this test also pins down that the
+    IP cap stays tight even though the identifier cap was raised in the
+    final-review fix (one IP spraying 6 never-seen identifiers, 1 attempt
+    each, still gets blocked on the 6th purely via the IP counter)."""
     attacker_ip = "203.0.113.77"
-    for i in range(admin_app_module.MAX_LOGIN_ATTEMPTS):
+    for i in range(admin_app_module.MAX_LOGIN_ATTEMPTS_PER_IP):
         token = _get_csrf(admin_client)
         resp = admin_client.post(
             "/login",
@@ -276,8 +292,12 @@ def test_admin_one_account_hammered_from_many_ips_still_gets_rate_limited(
     """An attacker distributed across many different source IPs, all
     targeting the same admin username, must still trip the per-account
     limiter — an ip-only or (ip AND identifier)-only key would let each new
-    IP start a fresh budget and never catch this."""
-    for i in range(admin_app_module.MAX_LOGIN_ATTEMPTS):
+    IP start a fresh budget and never catch this. Uses
+    MAX_LOGIN_ATTEMPTS_PER_IDENTIFIER (raised above the per-IP cap in the
+    final-review fix) as the loop bound, with a distinct never-reused IP per
+    attempt, so only the per-identifier counter is exercised here — no
+    individual IP comes anywhere near the (unchanged, tighter) per-IP cap."""
+    for i in range(admin_app_module.MAX_LOGIN_ATTEMPTS_PER_IDENTIFIER):
         token = _get_csrf(admin_client)
         resp = admin_client.post(
             "/login",
@@ -314,8 +334,14 @@ def test_admin_identifier_is_case_and_whitespace_normalized_for_rate_limiting(
         )
         assert resp.status_code == 200
 
-    # 5 failed attempts (across normalized-equal variants) should have used
-    # up the whole MAX_LOGIN_ATTEMPTS budget for "admin".
+    # 5 failed attempts (across normalized-equal variants), all from the same
+    # (unforwarded) test-client IP, trip the per-IP cap
+    # (MAX_LOGIN_ATTEMPTS_PER_IP) regardless of identifier normalization;
+    # what this test actually pins down is that the identifier-normalization
+    # path doesn't throw or otherwise misbehave on case/whitespace variants
+    # (see test_admin_one_account_hammered_from_many_ips_still_gets_rate_limited
+    # above for a test that isolates the per-identifier dimension alone, via
+    # distinct IPs).
     token = _get_csrf(admin_client)
     resp = admin_client.post(
         "/login",
@@ -384,12 +410,15 @@ def test_portal_one_ip_spraying_many_accounts_gets_rate_limited_on_ip_dimension(
     portal_app_module, portal_client
 ):
     """One attacker IP cycling through many different decoy emails — at most
-    MAX_ATTEMPTS attempts against any single one of them — must still trip
-    the per-IP counter once its total attempt volume from that source
-    crosses the cap. This is the credential-spray case fix-round 1's
-    identifier-only design left completely unthrottled."""
+    MAX_ATTEMPTS_PER_IP attempts against any single one of them — must still
+    trip the per-IP counter once its total attempt volume from that source
+    crosses the cap, independent of the (now higher) per-identifier
+    threshold. This is the credential-spray case fix-round 1's
+    identifier-only design left completely unthrottled, and this test also
+    pins down that the IP cap stays tight even though the identifier cap
+    was raised in the final-review fix."""
     attacker_ip = "203.0.113.180"
-    for i in range(portal_app_module.MAX_ATTEMPTS):
+    for i in range(portal_app_module.MAX_ATTEMPTS_PER_IP):
         token = _get_csrf(portal_client)
         resp = portal_client.post(
             "/login",
@@ -419,8 +448,12 @@ def test_portal_one_ip_spraying_many_accounts_gets_rate_limited_on_ip_dimension(
 def test_portal_one_account_hammered_from_many_ips_still_gets_rate_limited(
     portal_app_module, portal_client
 ):
+    """Uses MAX_ATTEMPTS_PER_IDENTIFIER (raised above the per-IP cap in the
+    final-review fix) as the loop bound, with a distinct never-reused IP per
+    attempt, so only the per-identifier counter is exercised — no individual
+    IP comes anywhere near the (unchanged, tighter) per-IP cap."""
     email = "victim2@example.com"
-    for i in range(portal_app_module.MAX_ATTEMPTS):
+    for i in range(portal_app_module.MAX_ATTEMPTS_PER_IDENTIFIER):
         token = _get_csrf(portal_client)
         resp = portal_client.post(
             "/login",
