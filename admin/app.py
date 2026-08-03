@@ -31,6 +31,16 @@ except ImportError:
         "bcrypt is not installed. Refusing to start without a secure password "
         "hashing library — install bcrypt (see requirements.txt)."
     )
+
+# Fixed decoy bcrypt hash (F19/F26) — precomputed once, hardcoded. Never the
+# hash of a real credential. When a login's username doesn't match any admin
+# user, we still run bcrypt.checkpw() against this hash before rejecting, so
+# the "user not found" branch costs roughly the same wall-clock time as the
+# "user found, wrong password" branch and can't be used to enumerate valid
+# usernames by timing. Computed via:
+#   bcrypt.hashpw(b"admin-decoy-password-never-used-2026-f19f26", bcrypt.gensalt())
+DECOY_PASSWORD_HASH = b"$2b$12$2ME/gBoP0XajKrW18aFhE.7x490T8VfY09XapNcxC3IyIrpkYNksm"
+
 from datetime import datetime
 from functools import wraps
 
@@ -730,6 +740,12 @@ def login():
                 password_ok = False
             if not password_ok:
                 user = None
+        else:
+            # No matching username — still run a real bcrypt verification
+            # against a fixed decoy hash (F19/F26) so this branch takes
+            # about as long as the "user found, wrong password" branch
+            # above and can't be distinguished by response timing.
+            bcrypt.checkpw(password.encode(), DECOY_PASSWORD_HASH)
         if user:
             clear_login_attempts(ip, username)
             session.permanent = False

@@ -20,6 +20,15 @@ except ImportError:
         "hashing library — install bcrypt (see requirements.txt)."
     )
 
+# Fixed decoy bcrypt hash (F19/F26) — precomputed once, hardcoded. Never the
+# hash of a real credential. When a login's email doesn't match any client
+# user, we still run bcrypt.checkpw() against this hash before rejecting, so
+# the "user not found" branch costs roughly the same wall-clock time as the
+# "user found, wrong password" branch and can't be used to enumerate valid
+# emails by timing. Computed via:
+#   bcrypt.hashpw(b"portal-decoy-password-never-used-2026-f19f26", bcrypt.gensalt())
+DECOY_PASSWORD_HASH = b"$2b$12$B4lgniJsvcBNQjUx0U3SPuT5floETVG5hG4WmYSLzlKkYcoUyEQme"
+
 from flask import (
     Flask, render_template, request, session,
     redirect, url_for, jsonify, g
@@ -446,6 +455,12 @@ def login():
             if cu:
                 if cu["password_hash"].startswith("$2"):
                     ok = bcrypt.checkpw(password.encode(), cu["password_hash"].encode())
+            else:
+                # No matching email — still run a real bcrypt verification
+                # against a fixed decoy hash (F19/F26) so this branch takes
+                # about as long as the "user found, wrong password" branch
+                # above and can't be distinguished by response timing.
+                bcrypt.checkpw(password.encode(), DECOY_PASSWORD_HASH)
             if cu and ok:
                 clear_attempts(ip, email)
                 session["client_user_id"] = cu["id"]
