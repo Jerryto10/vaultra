@@ -44,6 +44,11 @@ if not PORTAL_SECRET_KEY:
     )
 app.secret_key = PORTAL_SECRET_KEY
 
+# ── Session security ─────────────────────────────────────
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+
 # ── CORS — portal is same-origin only; /health is the sole public endpoint ─
 CORS(app, origins=["https://app.vaultra.io"], supports_credentials=True)
 PUBLIC_ORIGINS = ["https://vaultra.io", "https://app.vaultra.io"]

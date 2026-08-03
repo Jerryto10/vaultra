@@ -67,6 +67,9 @@ CORS(app, origins=["https://admin.vaultra.io"], supports_credentials=True)
 PUBLIC_ORIGINS = ["https://vaultra.io", "https://app.vaultra.io"]
 
 # ── Session security ─────────────────────────────────────
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 # ── Security headers ─────────────────────────────────────
 @app.after_request
