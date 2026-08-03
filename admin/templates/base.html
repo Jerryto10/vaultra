@@ -124,9 +124,9 @@
         <span class="timer-dot" id="tdot"></span>
         <span id="timer-txt">Session active</span>
       </div>
-      <a href="/logout" class="logout-btn" onclick="return confirm('Sign out of Vaultra Admin?')">
+      <button type="button" class="logout-btn" onclick="doLogout()">
         ↩ Sign Out Securely
-      </a>
+      </button>
     </div>
   </div>
 </nav>
@@ -164,6 +164,16 @@
     };
   })();
 
+  // Logout is POST-only + CSRF-guarded (F13: a GET route allowed logout CSRF
+  // via a bare <img src="/logout">). window.fetch above auto-attaches the
+  // CSRF header, so a plain fetch() call here is all that's needed.
+  function doLogout() {
+    if (!confirm('Sign out of Vaultra Admin?')) return;
+    fetch('/logout', { method: 'POST' }).finally(() => {
+      window.location.href = '/login';
+    });
+  }
+
   // Session countdown timer (30 min = 1800s)
   let seconds = 1800;
   const tdot = document.getElementById('tdot');
@@ -175,7 +185,9 @@
     if (seconds <= 0) {
       ttxt.textContent = 'Session expired';
       tdot.className = 'timer-dot danger';
-      window.location.href = '/logout';
+      fetch('/logout', { method: 'POST' }).finally(() => {
+        window.location.href = '/login';
+      });
     } else if (seconds <= 300) {
       ttxt.textContent = `Expires in ${m}:${String(s).padStart(2,'0')}`;
       tdot.className = 'timer-dot danger';

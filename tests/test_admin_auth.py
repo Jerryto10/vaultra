@@ -249,3 +249,39 @@ def test_create_admin_user_writes_bcrypt_hash(admin_app_module, client):
     row = _row(admin_app_module, "newbie")
     assert row["password_hash"].startswith("$2")
     assert bcrypt.checkpw(b"another-password1", row["password_hash"].encode())
+
+
+# ── logout: POST-only + CSRF-guarded (Task 3.1, F13) ───────────────────────
+#
+# /logout used to accept GET, so a third-party page could log a victim out
+# with a bare <img src="https://admin.vaultra.io/logout">. It's now POST-only
+# (Flask 405s any other method automatically) and runs through the same
+# enforce_csrf before_request hook as every other mutating admin route.
+
+def test_logout_rejects_get(admin_app_module, client):
+    _login_session(client, admin_app_module)
+    resp = client.get("/logout")
+    assert resp.status_code == 405
+    with client.session_transaction() as sess:
+        assert "admin_id" in sess  # session untouched — GET never reaches the handler
+
+
+def test_logout_rejects_post_without_csrf_token(admin_app_module, client):
+    _login_session(client, admin_app_module)
+    resp = client.post("/logout")
+    assert resp.status_code == 403
+    with client.session_transaction() as sess:
+        assert "admin_id" in sess  # blocked before the handler could clear it
+
+
+def test_logout_succeeds_with_valid_csrf_token(admin_app_module, client):
+    _login_session(client, admin_app_module)
+    resp = client.post(
+        "/logout",
+        headers={"X-CSRF-Token": FIXED_CSRF_TOKEN},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+    with client.session_transaction() as sess:
+        assert "admin_id" not in sess

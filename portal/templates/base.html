@@ -32,9 +32,9 @@
           <div class="user-role">client — secure session</div>
         </div>
       </div>
-      <a href="/logout" class="logout-btn" onclick="return confirm('Sign out of Vaultra Portal?')">
+      <button type="button" class="logout-btn" onclick="doLogout()">
         ↩ Sign Out
-      </a>
+      </button>
     </div>
   </div>
 </nav>
@@ -70,6 +70,16 @@
       return originalFetch(input, init);
     };
   })();
+
+  // Logout is POST-only + CSRF-guarded (F18: a GET route allowed logout CSRF
+  // via a bare <img src="/logout">). window.fetch above auto-attaches the
+  // CSRF header, so a plain fetch() call here is all that's needed.
+  function doLogout() {
+    if (!confirm('Sign out of Vaultra Portal?')) return;
+    fetch('/logout', { method: 'POST' }).finally(() => {
+      window.location.href = '/login';
+    });
+  }
 </script>
 {% block scripts %}{% endblock %}
 </body>

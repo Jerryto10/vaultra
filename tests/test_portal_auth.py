@@ -330,3 +330,42 @@ def test_invite_fails_closed_when_admin_token_unset(portal_app_module, client, m
     )
     assert resp.status_code == 401
     assert resp.get_json()["error"] == "Unauthorized"
+
+
+# ── logout: POST-only + CSRF-guarded (Task 3.1, F18) ───────────────────────
+#
+# /logout used to accept GET, so a third-party page could log a victim out
+# with a bare <img src="https://app.vaultra.io/logout">. It's now POST-only
+# (Flask 405s any other method automatically) and runs through the same
+# enforce_csrf before_request hook as every other mutating portal route.
+
+def test_logout_rejects_get(portal_app_module, client):
+    user_id, client_id = _make_client_user(portal_app_module)
+    _login_session(client, user_id, client_id)
+    resp = client.get("/logout")
+    assert resp.status_code == 405
+    with client.session_transaction() as sess:
+        assert "client_user_id" in sess  # session untouched — GET never reaches the handler
+
+
+def test_logout_rejects_post_without_csrf_token(portal_app_module, client):
+    user_id, client_id = _make_client_user(portal_app_module)
+    _login_session(client, user_id, client_id)
+    resp = client.post("/logout")
+    assert resp.status_code == 403
+    with client.session_transaction() as sess:
+        assert "client_user_id" in sess  # blocked before the handler could clear it
+
+
+def test_logout_succeeds_with_valid_csrf_token(portal_app_module, client):
+    user_id, client_id = _make_client_user(portal_app_module)
+    _login_session(client, user_id, client_id)
+    resp = client.post(
+        "/logout",
+        headers={"X-CSRF-Token": FIXED_CSRF_TOKEN},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+    with client.session_transaction() as sess:
+        assert "client_user_id" not in sess

@@ -746,8 +746,11 @@ def login():
         time.sleep(1)  # Slow down brute force
     return render_template("login.html", error=error)
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
+    # POST-only + CSRF-guarded (via the global enforce_csrf before_request
+    # hook, F13): a GET route here let any third-party page log a victim out
+    # with a bare <img src="/logout">/<iframe> (logout CSRF).
     if "admin_id" in session:
         log_action("LOGOUT")
     session.clear()
