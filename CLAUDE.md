@@ -137,6 +137,13 @@ Same plan, Phase 2. Executed via subagent-driven development (5 task-level revie
 - ✅ **F7 + F8** — CSV formula injection neutralized in both apps' `report_csv` exports via a `csv_safe()` helper (prefixes cells starting with `= + - @`/tab/CR with `'`), covering every column.
 - ✅ **F23** — `portal/app.py`'s `/api/invite` token comparison switched from `!=` to `hmac.compare_digest`, fail-closed guard preserved.
 
+### Resolved (Aug 3, 2026) — Security Hardening Phase 3 (LOW severity, quick wins)
+Same plan, Phase 3. Executed via subagent-driven development (3 task-level reviews + 1 final whole-branch review, all clean, no fix loops needed). Merged to `main` (3 commits, `108f018..7967a4b`), 106/106 tests passing.
+- ✅ **F13 + F18** — both apps' `/logout` routes are now POST-only, routed through the pre-existing CSRF synchronizer-token mechanism (closes logout CSRF, e.g. a forged `<img src="/logout">`). Templates updated to a `doLogout()` fetch helper carrying the CSRF header. Also fixed two collateral GET-based logout call sites the route change would otherwise have silently broken: admin `settings.html`'s sign-out button and `base.html`'s 30-min session-timeout auto-logout.
+- ✅ **F16 + F17** — both apps now set `SESSION_COOKIE_SECURE=True`, `SESSION_COOKIE_SAMESITE='Lax'`, `SESSION_COOKIE_HTTPONLY=True` explicitly. **Local-dev note:** since cookies are now `Secure`, use `http://localhost:PORT` for local login testing, not a LAN IP — modern browsers treat `localhost` as a secure context and still send/accept the cookie there, but a plain-HTTP LAN address will not receive it back.
+- ✅ **F19 + F26** — both apps' `login` routes now run a real `bcrypt.checkpw()` against a fixed, precomputed decoy hash when no matching user/email is found, before returning the (already-identical) generic error — equalizes response timing between "wrong password" and "user doesn't exist" to close a username/email enumeration side-channel. Confirmed not to interact with the Phase 2 rate limiter (decoy check sits after the rate-limit guard, before attempt recording, same order in both apps).
+- Known theoretical residual (not fixed, low priority): if a stored password hash somehow isn't bcrypt-prefixed, that one path skips the decoy check (fast, no timing-equalization) — Phase 2's F24/F25 already guarantees zero such hashes exist in production, so this branch is effectively dead code today.
+
 ### Non-critical findings (medium/low priority, not yet fixed)
 - Ledger hash chain has no lock under concurrency (possible fork under high load)
 - No retry logic on HTTP calls to the TSA
@@ -151,7 +158,7 @@ Same plan, Phase 2. Executed via subagent-driven development (5 task-level revie
 - `portal/app.py`'s `create_invitation` (F23) trusts the submitted `client_id` blindly after validating `PORTAL_ADMIN_TOKEN` — requires an already-serious compromise (leaked admin token) to reach; found during Phase 2's final review, explicitly out of Task 2.5's scope.
 - Cosmetic: admin's login route returns HTTP 429 on rate-limit rejection, portal's returns 200 with an inline error message. Both are safe.
 - The per-identifier login rate-limit cap (20) is a flat cutoff, not backoff/CAPTCHA/alerting — a sufficiently distributed attacker (20+ IPs) can still sustain a lockout against a known account at ~4x the pre-fix cost. Future hardening: exponential backoff or alerting on repeated identifier-dimension trips against sensitive accounts.
-- Remaining Phase 3–4 of the security hardening plan (logout CSRF, cookie flags, timing-based enumeration, CI action pinning, infra details in tracked files) — see the plan file for the full task list. Phases 1 and 2 are now both done.
+- Remaining **Phase 4** of the security hardening plan (CI action pinning, infra details in tracked files) — see the plan file for the full task list. Phases 1, 2, and 3 are now all done.
 
 ---
 
@@ -207,16 +214,19 @@ Workflow: user gives instructions in chat → instructions get transcribed as a 
 
 ## Pending Tasks (Priority Order)
 
+### ✅ Done (Aug 3, 2026)
+- **Security Hardening Phase 3** (F13/F18 logout CSRF, F16/F17 cookie flags, F19/F26 login timing enumeration) — see Security section above for details. Merged to `main` locally (3 commits, `108f018..7967a4b`), 106/106 tests passing. **Not yet pushed to origin / deployed to Hetzner** — awaiting user go-ahead to push (Phases 1 and 2 were pushed immediately after merge; confirm before repeating that for Phase 3).
+- **Remaining:** only **Phase 4** (infra/ops hygiene: CI action pinning, infra details in tracked files) stands between here and the full security hardening plan being done — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`.
+
 ### ✅ Done (Aug 2, 2026)
 - **Security Hardening Phase 1** (F6, F14, F20, F22, F21 full fix, + the mid-fix guardian.py regex-corruption finding) and **Phase 2** (F24/F25, F11, F9/F10, F7/F8, F23) — see Security section above for details. Both merged to `main`, pushed to origin, and deployed to Hetzner (Phase 1: 13 commits, `89e6476..ec5bf2a`; Phase 2: 7 commits, `7134967..b8630fa`). 90/90 tests passing on `main`.
 - **User decision (2026-08-02):** no new SDK version will be published to PyPI until the ENTIRE security hardening plan is resolved (Phases 1-4), not just the SDK-blocking Phase 1 — see the PyPI-publish-gate note below.
-- **Remaining:** Phase 3 (LOW severity: logout CSRF, cookie flags, timing-based enumeration) and Phase 4 (infra/ops hygiene: CI action pinning, infra details in tracked files) — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Once all phases are done, decide the SDK version bump (F6/F22's fail-closed changes are user-visible behavior changes for existing integrators — the plan's own Final Verification section flags this as a 2.0.3-vs-2.1.0 call) before publishing to PyPI.
 
 ### ✅ Done (Jul 26, 2026)
 - Real end-to-end test with an external AI agent — built `demo_kyc_agent.py` (gitignored, distinct from `demo_credit_agent.py`), created a real test client + API key in the production DB, ran 5 cases against `admin.vaultra.io` live: normal approve, sanctions/watchlist reject, low document quality review, a genuine prompt-injection attempt (correctly **blocked by Layer 2**, no receipt generated, logged as `INJECTION_ATTEMPT`), and a GDPR Art. 17 erasure request (correctly **blocked by Layer 5 Human Gate** as a CRITICAL `DELETE` action, receipt generated in `pending` state at 6/7 layers). All 4 non-blocked receipts confirmed stamped (RFC 3161) and `status=valid` in the production `receipts` table. Surfaced one product gap — see "Human Gate approval flow is ephemeral" in Security findings above.
 
 ### 🟡 Important — next session
-1. Security Hardening Phase 3 (LOW severity, quick wins: logout CSRF, session cookie flags, timing-based username/email enumeration) + Phase 4 (infra/ops hygiene: pin CI action to a commit SHA, move production infra details out of tracked files) — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Blocks the next PyPI publish per the user's explicit gate (see above).
+1. Push Phase 3 to origin/main (triggers Hetzner auto-deploy) — pending user go-ahead. Then Security Hardening **Phase 4** (infra/ops hygiene: pin CI action to a commit SHA, move production infra details out of tracked files) — see `docs/superpowers/plans/2026-07-27-vaultra-security-hardening.md`. Phase 4 is the last phase blocking the next PyPI publish per the user's explicit gate (see above).
 2. Design + build a durable Human Gate approval flow (persist pending DELETE/TRANSFER/IRREVERSIBLE requests to DB, add admin.vaultra.io view to approve/reject) — gap found during the KYC E2E test, distinct from F21's key-conflict admin UI (already built)
 3. Stripe — automated payments and subscriptions
 4. Resend — transactional email (invitations, quota alerts)
